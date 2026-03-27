@@ -6,6 +6,7 @@
 #   --agent-cmd <cmd>    Command to run the agent (default: "claude --dangerously-skip-permissions -p")
 #   --max-iterations <n> Maximum iterations (default: 50)
 #   --branch-prefix <p>  Branch prefix (default: "ralph")
+#   --log-file <path>    Log all agent output to a file
 #   --no-push            Skip pushing branches and creating PRs
 #   --no-sleep           Skip sleep between iterations (for testing)
 #   --help               Show this help
@@ -19,6 +20,7 @@ WORK_DIR=""
 MAX_ITERATIONS=50
 AGENT_CMD='claude --dangerously-skip-permissions -p'
 BRANCH_PREFIX="ralph"
+LOG_FILE=""
 NO_PUSH=false
 NO_SLEEP=false
 
@@ -35,6 +37,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --branch-prefix)
             BRANCH_PREFIX="$2"
+            shift 2
+            ;;
+        --log-file)
+            LOG_FILE="$2"
             shift 2
             ;;
         --no-push)
@@ -80,13 +86,45 @@ echo "Working directory: $(pwd)"
 echo "Max iterations: $MAX_ITERATIONS"
 echo "Branch prefix: $BRANCH_PREFIX"
 echo "Agent command: $AGENT_CMD"
+echo "Log file: ${LOG_FILE:-<none>}"
 echo "No push mode: $NO_PUSH"
 echo ""
+
+# Initialize log file if specified
+if [ -n "$LOG_FILE" ]; then
+    echo "=== Ralph Agent Log - $(date) ===" >> "$LOG_FILE"
+    echo "Working directory: $(pwd)" >> "$LOG_FILE"
+    echo "" >> "$LOG_FILE"
+fi
 
 # Fetch latest from origin (skip if no remote or in test mode)
 if git remote | grep -q origin; then
     git fetch origin main 2>/dev/null || echo "WARNING: Could not fetch from origin"
 fi
+
+# Function to run agent command with optional TTY streaming and file logging
+# - Streams output live when TTY is available
+# - Logs to LOG_FILE if specified
+run_agent() {
+    local prompt="$1"
+    local output
+    
+    if [ -t 1 ] && [ -n "$LOG_FILE" ]; then
+        # TTY available AND log file - stream to both
+        output=$(eval "$AGENT_CMD" '"$prompt"' 2>&1 | tee -a "$LOG_FILE" /dev/tty)
+    elif [ -t 1 ]; then
+        # TTY available only - stream to terminal
+        output=$(eval "$AGENT_CMD" '"$prompt"' 2>&1 | tee /dev/tty)
+    elif [ -n "$LOG_FILE" ]; then
+        # Log file only - write to file
+        output=$(eval "$AGENT_CMD" '"$prompt"' 2>&1 | tee -a "$LOG_FILE")
+    else
+        # No TTY, no log file - just capture
+        output=$(eval "$AGENT_CMD" '"$prompt"' 2>&1)
+    fi
+    
+    echo "$output"
+}
 
 # Function to sanitize epic name for branch name
 sanitize_branch_name() {
@@ -279,8 +317,7 @@ DO NOT:
 
 This is ONLY a discovery phase to determine which epic to work on next."
 
-    local output=$(eval "$AGENT_CMD" '"$discovery_prompt"' 2>&1)
-    echo "$output"
+    run_agent "$discovery_prompt"
 }
 
 # Main iteration loop
@@ -400,8 +437,7 @@ IMPORTANT:
 FINAL CHECK: Did you commit? If not, do it now:
 git add . && git commit -m 'feat($EPIC_ID): <description>'"
 
-    OUTPUT=$(eval "$AGENT_CMD" '"$WORK_PROMPT"' 2>&1)
-    echo "$OUTPUT"
+    OUTPUT=$(run_agent "$WORK_PROMPT")
     EXIT_CODE=$?
     if [ $EXIT_CODE -ne 0 ]; then
         echo "ERROR: Claude command failed with exit code $EXIT_CODE"
