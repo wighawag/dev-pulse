@@ -76,22 +76,44 @@ while [ $ITERATION -lt $MAX_ITERATIONS ]; do
     ITERATION=$((ITERATION + 1))
     echo "--- Iteration $ITERATION of $MAX_ITERATIONS ---"
 
+    # SAFEGUARD: Verify we're on the ralph branch, not main
+    CURRENT_BRANCH=$(git branch --show-current)
+    if [ "$CURRENT_BRANCH" = "main" ]; then
+        echo "!!! ERROR: On main branch, switching to $BRANCH_NAME !!!"
+        git checkout $BRANCH_NAME || {
+            echo "ERROR: Failed to switch to $BRANCH_NAME branch"
+            exit 1
+        }
+    fi
+    
+    # Record main's HEAD to detect accidental commits
+    MAIN_HEAD_BEFORE=$(git rev-parse main 2>/dev/null || echo "")
+
     # Call Claude Code with the work prompt
     OUTPUT=$(claude --dangerously-skip-permissions  -p "
 You are an autonomous coding agent that use markplane for finding epic to work on, task to implements.
+
+CRITICAL: NEVER commit to 'main' branch. You are on branch '$BRANCH_NAME'.
+Before ANY git commit, verify you are NOT on main: git branch --show-current
+
+MANDATORY RULE: After completing ANY task, you MUST commit your changes to the '$BRANCH_NAME' branch.
+A task is NOT complete until it is committed. Uncommitted work = incomplete work.
 
 INSTRUCTIONS:
 1. Choose the first task that is not done yet
 2. Implement it following the specs
 3. Check the acceptance criteria
-4. If they pass, update the task.
-5. sync markplane
-6. Add notes
-7. create or update any task if you think it matter
-8. Commit: git add . && git commit -m 'feat: [description]'
+4. If they pass, update the task status using markplane
+5. Run: markplane sync
+6. Add notes if relevant
+7. Create or update any task if you think it matters
+8. COMMIT (required): git add . && git commit -m 'feat: [description]'
 9. If all tasks are done, write: $COMPLETE_SIGNAL
 
 IMPORTANT: One task per iteration. Small, atomic commits.
+
+FINAL CHECK before ending: Did you commit your changes? If not, do it now:
+git add . && git commit -m 'feat: <description>'
 " 2>&1)
     EXIT_CODE=$?
     if [ $EXIT_CODE -ne 0 ]; then
@@ -101,6 +123,27 @@ IMPORTANT: One task per iteration. Small, atomic commits.
     fi
 
     echo "$OUTPUT"
+
+    # SAFEGUARD: Check if main branch was accidentally modified
+    if [ -n "$MAIN_HEAD_BEFORE" ]; then
+        MAIN_HEAD_AFTER=$(git rev-parse main 2>/dev/null || echo "")
+        if [ "$MAIN_HEAD_BEFORE" != "$MAIN_HEAD_AFTER" ]; then
+            echo "!!! WARNING: Detected commits to main branch !!!"
+            echo "Reverting main to previous state: $MAIN_HEAD_BEFORE"
+            CURRENT_BRANCH_NOW=$(git branch --show-current)
+            git checkout main 2>/dev/null
+            git reset --hard "$MAIN_HEAD_BEFORE"
+            git checkout "$CURRENT_BRANCH_NOW" 2>/dev/null || git checkout "$BRANCH_NAME"
+            echo "Main branch has been reverted"
+        fi
+    fi
+    
+    # Verify we're still on the correct branch
+    CURRENT_BRANCH_NOW=$(git branch --show-current)
+    if [ "$CURRENT_BRANCH_NOW" = "main" ]; then
+        echo "!!! WARNING: Switched back to main, returning to $BRANCH_NAME !!!"
+        git checkout "$BRANCH_NAME"
+    fi
 
     # Check for completion signal
     if echo "$OUTPUT" | grep -q "$COMPLETE_SIGNAL"; then
