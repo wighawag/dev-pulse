@@ -98,9 +98,50 @@ if [ "$IS_DISCOVERY_MODE" = true ]; then
     echo "=== Mock Agent: DISCOVERY MODE ==="
     echo ""
     
-    NEXT_EPIC=$(find_next_epic)
+    # Check for epics to skip (branches already exist)
+    # Parse the prompt for "IMPORTANT: The following epic IDs already have branches"
+    SKIP_EPICS=""
+    if echo "$PROMPT" | grep -q "already have branches"; then
+        # Extract epic IDs from the prompt (format: "  - EPIC-XXX")
+        SKIP_EPICS=$(echo "$PROMPT" | grep -E "^\s*-\s*EPIC-" | sed 's/.*-\s*\(EPIC-[0-9]*\).*/\1/')
+        if [ -n "$SKIP_EPICS" ]; then
+            echo "Epics to skip (have branches): $(echo $SKIP_EPICS | tr '\n' ' ')"
+        fi
+    fi
     
-    if [ "$NEXT_EPIC" = "DONE" ]; then
+    # Find next epic, respecting skip list
+    NEXT_EPIC=""
+    for epic_id in "${EPIC_ORDER[@]}"; do
+        # Check if this epic should be skipped
+        if echo "$SKIP_EPICS" | grep -q "^$epic_id$"; then
+            echo "Skipping $epic_id (has existing branch)"
+            continue
+        fi
+        
+        IFS='|' read -r epic_name depends_on tasks_total <<< "${EPICS[$epic_id]}"
+        
+        # Check if epic is already complete (from our internal state)
+        tasks_done="${COMPLETED_TASKS[$epic_id]:-0}"
+        if [ "$tasks_done" -ge "$tasks_total" ]; then
+            continue
+        fi
+        
+        # Check if dependency is satisfied (either complete or in skip list = has branch)
+        if [ -n "$depends_on" ]; then
+            dep_done="${COMPLETED_TASKS[$depends_on]:-0}"
+            IFS='|' read -r _ _ dep_total <<< "${EPICS[$depends_on]}"
+            # Dependency satisfied if: complete OR has existing branch
+            if [ "$dep_done" -lt "$dep_total" ] && ! echo "$SKIP_EPICS" | grep -q "^$depends_on$"; then
+                continue
+            fi
+        fi
+        
+        # Found an incomplete epic with satisfied dependencies
+        NEXT_EPIC="$epic_id"
+        break
+    done
+    
+    if [ -z "$NEXT_EPIC" ]; then
         echo "All epics are complete!"
         echo ""
         echo "RALPH_COMPLETE"

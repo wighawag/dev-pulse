@@ -291,15 +291,57 @@ Please review the changes and merge when ready.
     return 0
 }
 
+# Function to get list of epics that have existing branches (considered complete)
+# Excludes any epic that is currently in-progress (has STATE_FILE)
+get_completed_epic_branches() {
+    local in_progress_epic=""
+    
+    # Check if there's an epic currently in progress (STATE_FILE exists)
+    if [ -f "$STATE_FILE" ]; then
+        # Extract the epic ID from state file (don't source it to avoid side effects)
+        in_progress_epic=$(grep 'SAVED_EPIC_ID=' "$STATE_FILE" 2>/dev/null | sed 's/.*="\([^"]*\)".*/\1/')
+        if [ -n "$in_progress_epic" ]; then
+            echo "Excluding in-progress epic from completed list: $in_progress_epic" >&2
+        fi
+    fi
+    
+    # Find all branches matching the epic pattern and extract epic IDs
+    # Epic ID format is expected to be like EPIC-001, EPIC-002, etc.
+    # The pattern captures everything up to the second hyphen after "epic-"
+    # Branch format: ralph/epic-EPIC-001-user-authentication
+    #                           ^^^^^^^^^^ <- this is what we capture
+    # Then filter out the in-progress epic (if any)
+    git branch -a 2>/dev/null | grep "${BRANCH_PREFIX}/epic-" | \
+        sed "s|.*${BRANCH_PREFIX}/epic-\([A-Za-z]*-[0-9]*\)-.*|\1|" | \
+        sort -u | \
+        if [ -n "$in_progress_epic" ]; then
+            grep -v "^${in_progress_epic}$"
+        else
+            cat
+        fi
+}
+
 # Function to discover next epic (calls Claude in discovery mode)
 discover_next_epic() {
     echo "=== Discovering next epic ===" >&2
     
+    # Get list of epics that already have branches (these are complete or in-progress elsewhere)
+    local completed_epics=$(get_completed_epic_branches)
+    local completed_list=""
+    if [ -n "$completed_epics" ]; then
+        completed_list="IMPORTANT: The following epic IDs already have branches and should be considered COMPLETE (skip them):
+$(echo "$completed_epics" | sed 's/^/  - /')
+
+"
+        echo "Epics with existing branches (considered complete): $(echo $completed_epics | tr '\n' ' ')" >&2
+    fi
+    
     local discovery_prompt="You are an autonomous coding agent. Your ONLY task right now is to identify the next epic to work on.
 
-INSTRUCTIONS:
+${completed_list}INSTRUCTIONS:
 1. Use markplane to list all epics and their dependencies
 2. Find the first epic that:
+   - Does NOT have an existing branch (see list above if any)
    - Is not complete (has incomplete tasks)
    - Has all its dependencies (other epics) completed
 3. Output ONLY the following three lines (nothing else):
@@ -307,13 +349,14 @@ INSTRUCTIONS:
    EPIC_NAME: <name>
    DEPENDS_ON: <dependency_epic_id or empty if none>
 
-4. If ALL epics are complete, output only:
+4. If ALL epics are complete (including those with existing branches), output only:
    $COMPLETE_SIGNAL
 
 DO NOT:
 - Make any code changes
 - Commit anything
 - Do any implementation work
+- Work on any epic that already has a branch
 
 This is ONLY a discovery phase to determine which epic to work on next."
 
