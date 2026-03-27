@@ -37,7 +37,11 @@ sanitize_branch_name() {
     echo "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//'
 }
 
+# Global variable to hold the current epic branch name
+CURRENT_EPIC_BRANCH=""
+
 # Function to get or create branch for an epic
+# Sets CURRENT_EPIC_BRANCH global variable instead of echoing
 setup_epic_branch() {
     local epic_id="$1"
     local epic_name="$2"
@@ -94,7 +98,8 @@ setup_epic_branch() {
         }
     fi
     
-    echo "$branch_name"
+    # Set global variable instead of echoing
+    CURRENT_EPIC_BRANCH="$branch_name"
     return 0
 }
 
@@ -188,18 +193,19 @@ IMPORTANT:
 
     echo "$OUTPUT"
 
-    # Extract epic information
-    EPIC_ID=$(echo "$OUTPUT" | grep "^EPIC_ID:" | head -1 | sed 's/EPIC_ID: *//')
-    EPIC_NAME=$(echo "$OUTPUT" | grep "^EPIC_NAME:" | head -1 | sed 's/EPIC_NAME: *//')
-    DEPENDS_ON=$(echo "$OUTPUT" | grep "^DEPENDS_ON:" | head -1 | sed 's/DEPENDS_ON: *//')
+    # Extract epic information (more flexible regex to handle whitespace/formatting)
+    EPIC_ID=$(echo "$OUTPUT" | grep -E "^[[:space:]]*EPIC_ID:" | head -1 | sed 's/.*EPIC_ID:[[:space:]]*//')
+    EPIC_NAME=$(echo "$OUTPUT" | grep -E "^[[:space:]]*EPIC_NAME:" | head -1 | sed 's/.*EPIC_NAME:[[:space:]]*//')
+    DEPENDS_ON=$(echo "$OUTPUT" | grep -E "^[[:space:]]*DEPENDS_ON:" | head -1 | sed 's/.*DEPENDS_ON:[[:space:]]*//')
 
     # Setup branch if we have epic info
     if [ -n "$EPIC_ID" ] && [ -n "$EPIC_NAME" ]; then
-        CURRENT_BRANCH=$(setup_epic_branch "$EPIC_ID" "$EPIC_NAME" "$DEPENDS_ON")
+        setup_epic_branch "$EPIC_ID" "$EPIC_NAME" "$DEPENDS_ON"
         if [ $? -ne 0 ]; then
             echo "ERROR: Failed to setup epic branch"
             exit 1
         fi
+        # CURRENT_EPIC_BRANCH is now set by the function
     fi
 
     # Check for epic completion signal
@@ -207,10 +213,19 @@ IMPORTANT:
         echo ""
         echo "=== EPIC COMPLETED: $EPIC_NAME ==="
         
+        # Check for uncommitted changes and commit them
+        if ! git diff --quiet || ! git diff --cached --quiet; then
+            echo "WARNING: Uncommitted changes detected. Committing them now..."
+            git add .
+            git commit -m "feat($EPIC_ID): final changes for epic completion"
+        fi
+        
         CURRENT_BRANCH=$(git branch --show-current)
         create_epic_pr "$CURRENT_BRANCH" "$EPIC_NAME" "$DEPENDS_ON"
         
         echo "Moving to next epic..."
+        # Note: setup_epic_branch will handle correct base branch for next epic
+        # (dependency branch if depends_on is set, otherwise origin/main)
         echo ""
     fi
 
@@ -222,7 +237,8 @@ IMPORTANT:
         echo ""
         echo "Created PRs:"
         if command -v gh &> /dev/null; then
-            gh pr list --head "${BRANCH_PREFIX}/"
+            # Use --search to find PRs with branches starting with the prefix
+            gh pr list --search "head:${BRANCH_PREFIX}/epic-"
         else
             echo "Use 'gh pr list' to see all Ralph PRs"
         fi
