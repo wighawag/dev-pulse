@@ -1,11 +1,27 @@
 #!/bin/bash
 # markplane-ralph - Autonomous Coding Agent
-# Usage: markplane-ralph <work_dir> [max_iterations]
+# Usage: markplane-ralph [--create-pr] <work_dir> [max_iterations]
+
+# Parse flags
+CREATE_PR=false
+while [[ $1 == --* ]]; do
+    case "$1" in
+        --create-pr)
+            CREATE_PR=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
 
 WORK_DIR=${1:-.}
 MAX_ITERATIONS=${2:-50}
 ITERATION=0
 COMPLETE_SIGNAL="RALPH_COMPLETE"
+BRANCH_NAME="ralph"
 
 # Validate and change to work directory
 if [ ! -d "$WORK_DIR" ]; then
@@ -18,6 +34,42 @@ echo "=== Ralph Wiggum Coding Agent ==="
 echo "Working directory: $(pwd)"
 echo "Max iterations: $MAX_ITERATIONS"
 echo "Stop signal: $COMPLETE_SIGNAL"
+echo "Branch: $BRANCH_NAME"
+echo "Create PR on completion: $CREATE_PR"
+echo ""
+
+# Setup git branch
+echo "--- Setting up branch '$BRANCH_NAME' ---"
+
+# Fetch latest from origin
+git fetch origin main || {
+    echo "ERROR: Failed to fetch from origin"
+    exit 1
+}
+
+# Check if ralph branch exists
+if git show-ref --verify --quiet refs/heads/$BRANCH_NAME; then
+    echo "Switching to existing branch '$BRANCH_NAME'"
+    git checkout $BRANCH_NAME || {
+        echo "ERROR: Failed to checkout branch '$BRANCH_NAME'"
+        exit 1
+    }
+else
+    echo "Creating new branch '$BRANCH_NAME' from main"
+    git checkout -b $BRANCH_NAME origin/main || {
+        echo "ERROR: Failed to create branch '$BRANCH_NAME'"
+        exit 1
+    }
+fi
+
+# Merge latest from main
+echo "Merging latest changes from main..."
+git merge origin/main -m "Merge main into $BRANCH_NAME" || {
+    echo "ERROR: Failed to merge from main. Please resolve conflicts manually."
+    exit 1
+}
+
+echo "Branch setup complete."
 echo ""
 
 while [ $ITERATION -lt $MAX_ITERATIONS ]; do
@@ -56,10 +108,38 @@ IMPORTANT: One task per iteration. Small, atomic commits.
         echo "=== PRD COMPLETED! ==="
         echo "All tasks have been implemented."
 
-        # Optional notification (uncomment to enable)
-        # curl -X POST "https://api.pushover.net/1/messages.json" \
-        #   -d "token=YOUR_TOKEN&user=YOUR_USER&message=Ralph completed the PRD!"
+        # Push branch and create PR (if enabled)
+        if [ "$CREATE_PR" = true ]; then
+            echo "Pushing branch '$BRANCH_NAME' to origin..."
+            git push -u origin $BRANCH_NAME || {
+                echo "ERROR: Failed to push branch to origin"
+                exit 1
+            }
 
+            echo "Creating Pull Request..."
+            if command -v gh &> /dev/null; then
+                gh pr create --base main --head $BRANCH_NAME \
+                    --title "feat: Ralph agent implementation" \
+                    --body "Automated PR created by Ralph autonomous coding agent.
+
+## Changes
+This PR contains all tasks completed by the Ralph agent.
+
+## Review
+Please review the changes and merge when ready." || {
+                    echo "WARNING: Failed to create PR. You may need to create it manually."
+                }
+                echo ""
+                echo "PR created successfully!"
+            else
+                echo "WARNING: GitHub CLI (gh) not found. Please create PR manually."
+                echo "Branch '$BRANCH_NAME' has been pushed to origin."
+            fi
+        else
+            echo "PR creation skipped (use --create-pr to enable)."
+        fi
+
+     
         exit 0
     fi
 
