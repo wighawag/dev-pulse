@@ -166,6 +166,64 @@ export class GitHubProvider implements IssueProvider {
 		}
 	}
 
+	async listPRsByBranchPrefix(
+		prefix: string,
+	): Promise<Array<{branch: string; number: number; title: string; state: string; url: string}>> {
+		try {
+			const raw = await this.gh(
+				`pr list --state all --json headRefName,number,title,state,url --limit 100`,
+			);
+			if (!raw || raw === '[]') return [];
+			const prs = JSON.parse(raw) as Array<{
+				headRefName: string;
+				number: number;
+				title: string;
+				state: string;
+				url: string;
+			}>;
+			return prs
+				.filter((pr) => pr.headRefName.startsWith(prefix))
+				.map((pr) => ({
+					branch: pr.headRefName,
+					number: pr.number,
+					title: pr.title,
+					state: pr.state.toLowerCase(),
+					url: pr.url,
+				}));
+		} catch {
+			return [];
+		}
+	}
+
+	async getPR(
+		number: number,
+	): Promise<{branch: string; number: number; title: string; state: string; url: string; body: string} | null> {
+		try {
+			const raw = await this.gh(
+				`pr view ${number} --json headRefName,number,title,state,url,body`,
+			);
+			if (!raw) return null;
+			const pr = JSON.parse(raw) as {
+				headRefName: string;
+				number: number;
+				title: string;
+				state: string;
+				url: string;
+				body: string;
+			};
+			return {
+				branch: pr.headRefName,
+				number: pr.number,
+				title: pr.title,
+				state: pr.state.toLowerCase(),
+				url: pr.url,
+				body: pr.body || '',
+			};
+		} catch {
+			return null;
+		}
+	}
+
 	async ensureLabels(labels: string[]): Promise<void> {
 		for (const label of labels) {
 			try {

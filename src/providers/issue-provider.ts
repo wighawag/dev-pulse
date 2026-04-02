@@ -56,4 +56,18 @@ export interface IssueProvider {
 	 * Ensure required labels exist in the repo (create if missing)
 	 */
 	ensureLabels(labels: string[]): Promise<void>;
+
+	/**
+	 * List PRs whose head branch matches a prefix
+	 */
+	listPRsByBranchPrefix(
+		prefix: string,
+	): Promise<Array<{branch: string; number: number; title: string; state: string; url: string}>>;
+
+	/**
+	 * Get PR details by number (branch, state, body, etc.)
+	 */
+	getPR(
+		number: number,
+	): Promise<{branch: string; number: number; title: string; state: string; url: string; body: string} | null>;
 }

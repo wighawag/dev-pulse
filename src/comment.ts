@@ -1,6 +1,14 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import {exec} from 'node:child_process';
+import {promisify} from 'node:util';
 import type {AgentHarness} from './harnesses/agent-harness.js';
 import type {IssueProvider} from './providers/issue-provider.js';
 import {GitManager} from './git.js';
+import {TaskManager} from './task-manager.js';
+import {LABELS} from './types.js';
+
+const execAsync = promisify(exec);
 
 export interface CommentConfig {
 	/** Issue or PR number */
@@ -17,11 +25,31 @@ export interface CommentConfig {
 	post: boolean;
 }
 
+/** A related PR with its metadata */
+interface RelatedPR {
+	branch: string;
+	number: number;
+	title: string;
+	state: string;
+	url: string;
+}
+
+/** Whitesmith context gathered for prompts */
+interface WhitesmithContext {
+	/** The issue this comment relates to (for PR comments, the parent issue) */
+	parentIssue?: {number: number; title: string; body: string; url: string; labels: string[]};
+	/** Task proposal PR (investigate/<N>) */
+	taskPR?: RelatedPR;
+	/** Implementation PRs (task/<N>-*) */
+	implementationPRs: RelatedPR[];
+	/** Task files on the current branch (if tasks-accepted) */
+	tasks: Array<{id: string; title: string; filePath: string}>;
+	/** Whitesmith state label, if any */
+	stateLabel?: string;
+}
+
 /**
  * Handle a comment on a PR.
- *
- * Checks out the PR branch, runs the agent with instructions to make changes,
- * commits and pushes to the PR branch.
  */
 export async function handlePRComment(
 	config: CommentConfig,
@@ -29,24 +57,31 @@ export async function handlePRComment(
 	agent: AgentHarness,
 ): Promise<void> {
 	const git = new GitManager(config.workDir);
-	const issue = await issues.getIssue(config.number);
 
-	// Get PR branch
-	const prBranch = await getPRBranch(issues, config.number);
-	console.log(`PR #${config.number}: ${issue.title}`);
-	console.log(`Branch: ${prBranch}`);
+	// Get PR details
+	const pr = await issues.getPR(config.number);
+	if (!pr) {
+		throw new Error(`Could not find PR #${config.number}`);
+	}
+
+	console.log(`PR #${config.number}: ${pr.title}`);
+	console.log(`Branch: ${pr.branch}`);
 
 	// Checkout PR branch
 	await git.fetch();
-	await git.checkout(prBranch);
+	await git.checkout(pr.branch);
+
+	// Gather whitesmith context based on branch naming
+	const context = await gatherContextForPR(pr.branch, config.workDir, issues);
 
 	const prompt = buildPRCommentPrompt({
-		title: issue.title,
-		url: issue.url,
+		title: pr.title,
+		url: pr.url,
 		number: config.number,
-		body: issue.body,
-		branch: prBranch,
+		body: pr.body,
+		branch: pr.branch,
 		commentBody: config.commentBody,
+		context,
 	});
 
 	const {exitCode} = await agent.run({
@@ -62,8 +97,8 @@ export async function handlePRComment(
 	// Commit and push any changes
 	const committed = await git.commitAll(`fix(#${config.number}): address review comment`);
 	if (committed) {
-		await git.push(prBranch);
-		console.log(`Changes pushed to ${prBranch}`);
+		await git.push(pr.branch);
+		console.log(`Changes pushed to ${pr.branch}`);
 	} else {
 		console.log('No changes to commit.');
 	}
@@ -71,9 +106,6 @@ export async function handlePRComment(
 
 /**
  * Handle a comment on an issue (not a PR).
- *
- * Runs the agent with read-only instructions to analyze the codebase and produce
- * a response. The response is either printed to stdout or posted as a GitHub comment.
  */
 export async function handleIssueComment(
 	config: CommentConfig,
@@ -83,6 +115,9 @@ export async function handleIssueComment(
 	const issue = await issues.getIssue(config.number);
 	console.log(`Issue #${config.number}: ${issue.title}`);
 
+	// Gather whitesmith context for this issue
+	const context = await gatherContextForIssue(config.number, config.workDir, issues);
+
 	const responseFile = '.whitesmith-response.md';
 	const prompt = buildIssueCommentPrompt({
 		title: issue.title,
@@ -91,6 +126,7 @@ export async function handleIssueComment(
 		body: issue.body,
 		commentBody: config.commentBody,
 		responseFile,
+		context,
 	});
 
 	const {exitCode} = await agent.run({
@@ -104,8 +140,6 @@ export async function handleIssueComment(
 	}
 
 	// Read the response file
-	const fs = await import('node:fs');
-	const path = await import('node:path');
 	const responsePath = path.join(config.workDir, responseFile);
 
 	if (!fs.existsSync(responsePath)) {
@@ -134,29 +168,199 @@ export async function handleIssueComment(
 
 /**
  * Detect whether a given number is a PR or an issue.
- * Uses `gh pr view` — if it succeeds, it's a PR.
  */
 export async function isPullRequest(issues: IssueProvider, number: number): Promise<boolean> {
-	try {
-		// Try to get PR branch — if this succeeds, it's a PR
-		await getPRBranch(issues, number);
-		return true;
-	} catch {
-		return false;
-	}
+	const pr = await issues.getPR(number);
+	return pr !== null;
 }
 
-async function getPRBranch(issues: IssueProvider, number: number): Promise<string> {
-	// Use gh CLI directly since IssueProvider doesn't have a PR-specific method
-	const {exec} = await import('node:child_process');
-	const {promisify} = await import('node:util');
-	const execAsync = promisify(exec);
+// --- Context gathering ---
 
-	const {stdout} = await execAsync(`gh pr view ${number} --json headRefName -q .headRefName`);
-	return stdout.trim();
+/**
+ * Parse a whitesmith branch name to extract the issue number.
+ *
+ * - `investigate/<N>` → issue N (task proposal PR)
+ * - `task/<N>-<seq>` → issue N (implementation PR)
+ */
+function parseWhitesmithBranch(branch: string): {type: 'investigate' | 'task'; issueNumber: number; taskId?: string} | null {
+	const investigateMatch = branch.match(/^investigate\/(\d+)$/);
+	if (investigateMatch) {
+		return {type: 'investigate', issueNumber: parseInt(investigateMatch[1], 10)};
+	}
+
+	const taskMatch = branch.match(/^task\/(\d+)-(\d+.*)$/);
+	if (taskMatch) {
+		return {
+			type: 'task',
+			issueNumber: parseInt(taskMatch[1], 10),
+			taskId: `${taskMatch[1]}-${taskMatch[2]}`,
+		};
+	}
+
+	return null;
+}
+
+/**
+ * Gather whitesmith context for a PR comment based on its branch name.
+ */
+async function gatherContextForPR(
+	branch: string,
+	workDir: string,
+	issues: IssueProvider,
+): Promise<WhitesmithContext> {
+	const context: WhitesmithContext = {implementationPRs: [], tasks: []};
+
+	const parsed = parseWhitesmithBranch(branch);
+	if (!parsed) return context;
+
+	// Fetch the parent issue
+	try {
+		const issue = await issues.getIssue(parsed.issueNumber);
+		context.parentIssue = {
+			number: issue.number,
+			title: issue.title,
+			body: issue.body,
+			url: issue.url,
+			labels: issue.labels,
+		};
+		context.stateLabel = issue.labels.find((l) => l.startsWith('whitesmith:'));
+	} catch {
+		// Issue might not exist
+	}
+
+	// Find related PRs for this issue
+	await gatherRelatedPRs(parsed.issueNumber, issues, context);
+
+	// If tasks are on main, list them
+	const taskManager = new TaskManager(workDir);
+	context.tasks = taskManager.listTasks(parsed.issueNumber).map((t) => ({
+		id: t.id,
+		title: t.title,
+		filePath: t.filePath,
+	}));
+
+	return context;
+}
+
+/**
+ * Gather whitesmith context for an issue comment.
+ */
+async function gatherContextForIssue(
+	issueNumber: number,
+	workDir: string,
+	issues: IssueProvider,
+): Promise<WhitesmithContext> {
+	const context: WhitesmithContext = {implementationPRs: [], tasks: []};
+
+	// Get the issue's labels for state
+	try {
+		const issue = await issues.getIssue(issueNumber);
+		context.stateLabel = issue.labels.find((l) => l.startsWith('whitesmith:'));
+	} catch {
+		// ignore
+	}
+
+	// Find related PRs
+	await gatherRelatedPRs(issueNumber, issues, context);
+
+	// List tasks on main
+	const taskManager = new TaskManager(workDir);
+	context.tasks = taskManager.listTasks(issueNumber).map((t) => ({
+		id: t.id,
+		title: t.title,
+		filePath: t.filePath,
+	}));
+
+	return context;
+}
+
+/**
+ * Find task proposal and implementation PRs related to an issue.
+ */
+async function gatherRelatedPRs(
+	issueNumber: number,
+	issues: IssueProvider,
+	context: WhitesmithContext,
+): Promise<void> {
+	// Task proposal PR
+	const taskPR = await issues.getPRForBranch(`investigate/${issueNumber}`);
+	if (taskPR) {
+		context.taskPR = {
+			branch: `investigate/${issueNumber}`,
+			number: 0, // getPRForBranch doesn't return number
+			title: '',
+			state: taskPR.state,
+			url: taskPR.url,
+		};
+	}
+
+	// Implementation PRs
+	const implPRs = await issues.listPRsByBranchPrefix(`task/${issueNumber}-`);
+	context.implementationPRs = implPRs;
 }
 
 // --- Prompt builders ---
+
+function formatWhitesmithContext(context: WhitesmithContext): string {
+	const sections: string[] = [];
+
+	if (context.stateLabel) {
+		const stateDescriptions: Record<string, string> = {
+			[LABELS.INVESTIGATING]: 'The agent is currently investigating this issue and generating tasks.',
+			[LABELS.TASKS_PROPOSED]: 'Tasks have been proposed in a PR and are awaiting review.',
+			[LABELS.TASKS_ACCEPTED]: 'Tasks have been accepted and are being implemented.',
+			[LABELS.COMPLETED]: 'All tasks for this issue have been completed.',
+		};
+		const desc = stateDescriptions[context.stateLabel] || context.stateLabel;
+		sections.push(`### Whitesmith State\n\n**${context.stateLabel}**: ${desc}`);
+	}
+
+	if (context.parentIssue) {
+		sections.push(
+			`### Parent Issue\n\n` +
+			`- **Title:** ${context.parentIssue.title}\n` +
+			`- **URL:** ${context.parentIssue.url}\n` +
+			`- **Number:** #${context.parentIssue.number}\n` +
+			`- **Labels:** ${context.parentIssue.labels.join(', ') || 'none'}\n\n` +
+			`#### Issue Description\n\n${context.parentIssue.body}`,
+		);
+	}
+
+	if (context.taskPR) {
+		sections.push(
+			`### Task Proposal PR\n\n` +
+			`- **Branch:** \`${context.taskPR.branch}\`\n` +
+			`- **State:** ${context.taskPR.state}\n` +
+			`- **URL:** ${context.taskPR.url}`,
+		);
+	}
+
+	if (context.implementationPRs.length > 0) {
+		const prList = context.implementationPRs
+			.map(
+				(pr) =>
+					`- **#${pr.number}** ${pr.title} — \`${pr.branch}\` (${pr.state}) — ${pr.url}`,
+			)
+			.join('\n');
+		sections.push(`### Implementation PRs\n\n${prList}`);
+	}
+
+	if (context.tasks.length > 0) {
+		const taskList = context.tasks
+			.map((t) => `- **${t.id}**: ${t.title} (\`${t.filePath}\`)`)
+			.join('\n');
+		sections.push(`### Pending Tasks\n\n${taskList}`);
+	}
+
+	if (sections.length === 0) {
+		return '';
+	}
+
+	return `\n## Whitesmith Context\n\n` +
+		`The following is the current whitesmith pipeline state related to this issue/PR. ` +
+		`Use this context to provide informed responses.\n\n` +
+		sections.join('\n\n') + '\n';
+}
 
 interface PRCommentPromptArgs {
 	title: string;
@@ -165,6 +369,7 @@ interface PRCommentPromptArgs {
 	body: string;
 	branch: string;
 	commentBody: string;
+	context: WhitesmithContext;
 }
 
 function buildPRCommentPrompt(args: PRCommentPromptArgs): string {
@@ -180,7 +385,7 @@ function buildPRCommentPrompt(args: PRCommentPromptArgs): string {
 ### PR Description
 
 ${args.body}
-
+${formatWhitesmithContext(args.context)}
 ## Triggering Comment
 
 ${args.commentBody}
@@ -191,8 +396,9 @@ You are working on a pull request. The comment above is a request from a reviewe
 
 1. You are already on the PR branch: \`${args.branch}\`
 2. Read and understand the comment request.
-3. Make the requested changes.
-4. Commit your changes with a descriptive message.
+3. Review the whitesmith context above to understand the pipeline state.
+4. Make the requested changes.
+5. Commit your changes with a descriptive message.
 
 Do NOT push. Do NOT create a new PR. The caller will handle pushing.
 `;
@@ -205,6 +411,7 @@ interface IssueCommentPromptArgs {
 	body: string;
 	commentBody: string;
 	responseFile: string;
+	context: WhitesmithContext;
 }
 
 function buildIssueCommentPrompt(args: IssueCommentPromptArgs): string {
@@ -219,7 +426,7 @@ function buildIssueCommentPrompt(args: IssueCommentPromptArgs): string {
 ### Issue Description
 
 ${args.body}
-
+${formatWhitesmithContext(args.context)}
 ## Triggering Comment
 
 ${args.commentBody}
@@ -229,12 +436,14 @@ ${args.commentBody}
 You are responding to a comment on an issue (not a pull request).
 
 1. Read and understand the issue description and the triggering comment.
-2. You have full access to the repository code — read files, explore the codebase as needed.
-3. Analyze the request and formulate a helpful response.
-4. Write your response in Markdown to the file \`${args.responseFile}\`.
+2. Review the whitesmith context above to understand what work is already in progress.
+3. You have full access to the repository code — read files, explore the codebase as needed.
+4. Analyze the request and formulate a helpful response.
+5. Write your response in Markdown to the file \`${args.responseFile}\`.
 
 Your response will be posted as a comment on the issue.
 Be thorough but concise. Include code snippets, file references, or suggestions as appropriate.
+If there are pending PRs or tasks, reference them in your response when relevant.
 Do NOT create branches, commits, or pull requests.
 `;
 }
