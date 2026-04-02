@@ -77,31 +77,45 @@ jobs:
           chmod 600 ~/.pi/agent/auth.json
           echo "Configured pi auth from PI_AUTH_JSON"
 
-      - name: Determine context and build prompt
-        id: prompt
+      - name: Determine if PR or issue
+        id: context
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          IS_PR="false"
-          if [ -n "${{ github.event.issue.pull_request.url }}" ]; then
-            IS_PR="true"
-          fi
-          echo "is_pr=$IS_PR" >> "$GITHUB_OUTPUT"
-
           ISSUE_NUMBER="${{ github.event.issue.number }}"
           ISSUE_TITLE="${{ github.event.issue.title }}"
           ISSUE_URL="${{ github.event.issue.html_url }}"
 
+          PR_URL="${{ github.event.issue.pull_request.url }}"
+          if [ -n "$PR_URL" ]; then
+            echo "is_pr=true" >> "$GITHUB_OUTPUT"
+            PR_BRANCH=$(gh pr view "$ISSUE_NUMBER" --json headRefName -q .headRefName)
+            echo "pr_branch=$PR_BRANCH" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_pr=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "issue_title=$ISSUE_TITLE" >> "$GITHUB_OUTPUT"
+
+      - name: Build prompt for PR comment
+        if: steps.context.outputs.is_pr == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ISSUE_NUMBER="${{ steps.context.outputs.issue_number }}"
+          ISSUE_TITLE="${{ steps.context.outputs.issue_title }}"
+          ISSUE_URL="${{ github.event.issue.html_url }}"
+          PR_BRANCH="${{ steps.context.outputs.pr_branch }}"
+
           cat > .whitesmith-prompt.md << 'PROMPT_HEADER'
-          # Agent Task from Comment
+          # Agent Task from PR Comment
 
           PROMPT_HEADER
 
-          if [ "$IS_PR" = "true" ]; then
-            PR_BRANCH=$(gh pr view "$ISSUE_NUMBER" --json headRefName -q .headRefName)
-            echo "pr_branch=$PR_BRANCH" >> "$GITHUB_OUTPUT"
+          PR_BODY=$(gh pr view "$ISSUE_NUMBER" --json body -q .body)
 
-            cat >> .whitesmith-prompt.md << PROMPT_EOF
+          cat >> .whitesmith-prompt.md << PROMPT_EOF
           ## Pull Request
 
           - **Title:** ${ISSUE_TITLE}
@@ -111,7 +125,7 @@ jobs:
 
           ### PR Description
 
-          $(gh pr view "$ISSUE_NUMBER" --json body -q .body)
+          ${PR_BODY}
 
           ## Triggering Comment
 
@@ -132,8 +146,27 @@ jobs:
 
           Do NOT create a new PR. Push directly to the existing PR branch.
           PROMPT_EOF
-          else
-            cat >> .whitesmith-prompt.md << PROMPT_EOF
+
+          echo "Prompt built:"
+          cat .whitesmith-prompt.md
+
+      - name: Build prompt for issue comment
+        if: steps.context.outputs.is_pr != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ISSUE_NUMBER="${{ steps.context.outputs.issue_number }}"
+          ISSUE_TITLE="${{ steps.context.outputs.issue_title }}"
+          ISSUE_URL="${{ github.event.issue.html_url }}"
+
+          cat > .whitesmith-prompt.md << 'PROMPT_HEADER'
+          # Agent Task from Issue Comment
+
+          PROMPT_HEADER
+
+          ISSUE_BODY=$(gh issue view "$ISSUE_NUMBER" --json body -q .body)
+
+          cat >> .whitesmith-prompt.md << PROMPT_EOF
           ## Issue
 
           - **Title:** ${ISSUE_TITLE}
@@ -142,7 +175,7 @@ jobs:
 
           ### Issue Description
 
-          $(gh issue view "$ISSUE_NUMBER" --json body -q .body)
+          ${ISSUE_BODY}
 
           ## Triggering Comment
 
@@ -153,25 +186,25 @@ jobs:
 
           ## Instructions
 
-          You are working on an issue. The comment above is a request from a contributor.
+          You are responding to a comment on an issue (not a pull request).
 
-          1. Create a new branch from the default branch (e.g., \`git checkout -b agent/issue-${ISSUE_NUMBER}\`).
-          2. Read and understand the comment request and the issue description.
-          3. Implement the requested changes.
-          4. Commit your changes with a descriptive message referencing #${ISSUE_NUMBER}.
-          5. Push the branch: \`git push origin agent/issue-${ISSUE_NUMBER}\`
-          6. Create a pull request targeting the default branch using: \`gh pr create --title "fix(#${ISSUE_NUMBER}): <summary>" --body "Addresses #${ISSUE_NUMBER}"\`
+          1. Read and understand the issue description and the triggering comment.
+          2. You have full access to the repository code — read files, explore the codebase as needed.
+          3. Analyze the request and formulate a helpful response.
+          4. Write your response in Markdown to the file \`.whitesmith-response.md\`.
 
+          Your response will be posted as a comment on the issue.
+          Be thorough but concise. Include code snippets, file references, or suggestions as appropriate.
+          Do NOT create branches, commits, or pull requests.
           PROMPT_EOF
-          fi
 
           echo "Prompt built:"
           cat .whitesmith-prompt.md
 
       - name: Checkout PR branch
-        if: steps.prompt.outputs.is_pr == 'true'
+        if: steps.context.outputs.is_pr == 'true'
         run: |
-          git checkout ${{ steps.prompt.outputs.pr_branch }}
+          git checkout ${{ steps.context.outputs.pr_branch }}
 
       - name: Run pi
         id: agent
@@ -187,6 +220,21 @@ jobs:
           pi --prompt-file .whitesmith-prompt.md \
             --provider "$PROVIDER" \
             --model "$MODEL"
+
+      - name: Post issue comment response
+        if: steps.context.outputs.is_pr != 'true' && success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f .whitesmith-response.md ]; then
+            gh issue comment ${{ github.event.issue.number }} \
+              --repo ${{ github.repository }} \
+              --body-file .whitesmith-response.md
+          else
+            gh issue comment ${{ github.event.issue.number }} \
+              --repo ${{ github.repository }} \
+              --body "🤖 Agent completed but did not produce a response file. Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
+          fi
 
       - name: React with checkmark on success
         if: success()
