@@ -1,2 +1,2 @@
-export type {AgentHarness} from './agent-harness.js';
+export type {AgentHarness, AgentHarnessConfig} from './agent-harness.js';
 export {PiHarness} from './pi.js';

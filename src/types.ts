@@ -64,6 +64,10 @@ export const LABELS = {
 export interface DevPulseConfig {
 	/** Command to run the agent harness */
 	agentCmd: string;
+	/** AI provider name (e.g. 'anthropic', 'openai') */
+	provider: string;
+	/** AI model ID (e.g. 'claude-opus-4-6') */
+	model: string;
 	/** Maximum iterations per run */
 	maxIterations: number;
 	/** Working directory (the repo) */

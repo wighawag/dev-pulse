@@ -1,7 +1,7 @@
-import {exec} from 'node:child_process';
+import {exec, execSync} from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type {AgentHarness} from './agent-harness.js';
+import type {AgentHarness, AgentHarnessConfig} from './agent-harness.js';
 
 /**
  * Agent harness for @mariozechner/pi-coding-agent.
@@ -10,12 +10,46 @@ import type {AgentHarness} from './agent-harness.js';
  */
 export class PiHarness implements AgentHarness {
 	private cmd: string;
+	private provider: string;
+	private model: string;
 
-	/**
-	 * @param cmd - Command to invoke pi (default: "pi")
-	 */
-	constructor(cmd: string = 'pi') {
-		this.cmd = cmd;
+	constructor(config: AgentHarnessConfig) {
+		this.cmd = config.cmd;
+		this.provider = config.provider;
+		this.model = config.model;
+	}
+
+	async validate(): Promise<void> {
+		// Check if the command exists
+		try {
+			execSync(`which ${this.cmd}`, {stdio: 'pipe'});
+		} catch {
+			throw new Error(
+				`Agent command '${this.cmd}' not found. ` +
+					`Make sure it is installed and available in PATH. ` +
+					`For pi-coding-agent: npm install -g @mariozechner/pi-coding-agent`,
+			);
+		}
+
+		// Validate auth by making a minimal API call
+		try {
+			const result = execSync(
+				`${this.cmd} --print --no-tools --provider ${this.provider} --model ${this.model} "respond with OK"`,
+				{stdio: 'pipe', timeout: 30_000},
+			);
+			const output = result.toString().trim();
+			if (!output) {
+				throw new Error('Empty response');
+			}
+			console.log(`Auth check passed (response: ${output.slice(0, 20)})`);
+		} catch (error: any) {
+			const stderr = error.stderr?.toString() || error.message || '';
+			throw new Error(
+				`Agent auth validation failed. Ensure valid credentials are configured.\n` +
+					`Set ANTHROPIC_API_KEY or configure OAuth via ~/.pi/agent/auth.json\n` +
+					`Details: ${stderr.slice(0, 500)}`,
+			);
+		}
 	}
 
 	async run(options: {
@@ -29,7 +63,7 @@ export class PiHarness implements AgentHarness {
 
 		try {
 			const result = await this.exec(
-				`${this.cmd} --prompt-file "${promptFile}" --yes`,
+				`${this.cmd} --prompt-file "${promptFile}" --yes --provider ${this.provider} --model ${this.model}`,
 				options.workDir,
 				options.logFile,
 			);

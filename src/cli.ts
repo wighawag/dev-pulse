@@ -16,7 +16,11 @@ const DEFAULT_MAX_ITERATIONS = 10;
 
 function createOrchestrator(config: DevPulseConfig): Orchestrator {
 	const issues = new GitHubProvider(config.workDir, config.repo);
-	const agent = new PiHarness(config.agentCmd);
+	const agent = new PiHarness({
+		cmd: config.agentCmd,
+		provider: config.provider,
+		model: config.model,
+	});
 	return new Orchestrator(config, issues, agent);
 }
 
@@ -34,6 +38,8 @@ export function buildCli(): Command {
 		.description('Run the main whitesmith loop: investigate issues, implement tasks')
 		.argument('[work_dir]', 'Working directory', '.')
 		.option('--agent-cmd <cmd>', 'Agent harness command', DEFAULT_AGENT_CMD)
+		.requiredOption('--provider <name>', 'AI provider (e.g. anthropic, openai)')
+		.requiredOption('--model <id>', 'AI model ID (e.g. claude-opus-4-6)')
 		.option('--max-iterations <n>', 'Max iterations', String(DEFAULT_MAX_ITERATIONS))
 		.option('--repo <owner/repo>', 'GitHub repo (auto-detected if omitted)')
 		.option('--log-file <path>', 'Log agent output to file')
@@ -42,6 +48,8 @@ export function buildCli(): Command {
 		.action(async (workDir: string, opts) => {
 			const config: DevPulseConfig = {
 				agentCmd: opts.agentCmd,
+				provider: opts.provider,
+				model: opts.model,
 				maxIterations: parseInt(opts.maxIterations, 10),
 				workDir: path.resolve(workDir),
 				noPush: opts.push === false,

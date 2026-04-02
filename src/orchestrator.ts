@@ -37,6 +37,13 @@ export class Orchestrator {
 		console.log(`Working directory: ${this.config.workDir}`);
 		console.log(`Max iterations: ${this.config.maxIterations}`);
 		console.log(`Agent command: ${this.config.agentCmd}`);
+		console.log(`Provider: ${this.config.provider}`);
+		console.log(`Model: ${this.config.model}`);
+		console.log('');
+
+		// Validate agent is available before doing anything
+		await this.agent.validate();
+		console.log('Agent validated successfully.');
 		console.log('');
 
 		// Ensure labels exist
