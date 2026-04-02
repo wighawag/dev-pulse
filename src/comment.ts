@@ -110,8 +110,12 @@ export async function handleIssueComment(
 	issues: IssueProvider,
 	agent: AgentHarness,
 ): Promise<void> {
+	const git = new GitManager(config.workDir);
 	const issue = await issues.getIssue(config.number);
 	console.log(`Issue #${config.number}: ${issue.title}`);
+
+	// Fetch so the agent can checkout related PR branches if needed
+	await git.fetch();
 
 	// Gather whitesmith context for this issue
 	const context = await gatherContextForIssue(config.number, config.workDir, issues);
@@ -421,6 +425,40 @@ interface IssueCommentPromptArgs {
 }
 
 function buildIssueCommentPrompt(args: IssueCommentPromptArgs): string {
+	// Build the list of related PR branches the agent can work on
+	const relatedBranches: string[] = [];
+	if (args.context.taskPR && args.context.taskPR.state === 'open') {
+		relatedBranches.push(args.context.taskPR.branch);
+	}
+	for (const pr of args.context.implementationPRs) {
+		if (pr.state === 'open') {
+			relatedBranches.push(pr.branch);
+		}
+	}
+
+	let workOnPRInstructions = '';
+	if (relatedBranches.length > 0) {
+		const branchList = relatedBranches.map((b) => `  - \`${b}\``).join('\n');
+		workOnPRInstructions = `
+
+### Working on related PRs
+
+If the comment asks you to make changes to a related PR (e.g. update the task plan,
+fix something in an implementation), you **can and should** do so. The related open PR branches are:
+
+${branchList}
+
+To work on a PR branch:
+
+1. \`git checkout <branch>\` (branches have been fetched already)
+2. Make your changes.
+3. Commit with a descriptive message.
+4. \`git push origin <branch>\`
+5. Still write \`${args.responseFile}\` summarizing what you did.
+
+When done, \`git checkout main\` to return to the default branch.`;
+	}
+
 	return `# Agent Task from Issue Comment
 
 ## Issue
@@ -439,7 +477,7 @@ ${args.commentBody}
 
 ## Instructions
 
-You are responding to a comment on an issue (not a pull request).
+You are responding to a comment on an issue.
 
 1. Read and understand the issue description and the triggering comment.
 2. Review the whitesmith context above to understand what work is already in progress.
@@ -449,7 +487,6 @@ You are responding to a comment on an issue (not a pull request).
 
 Your response will be posted as a comment on the issue.
 Be thorough but concise. Include code snippets, file references, or suggestions as appropriate.
-If there are pending PRs or tasks, reference them in your response when relevant.
-Do NOT create branches, commits, or pull requests.
+If there are pending PRs or tasks, reference them in your response when relevant.${workOnPRInstructions}
 `;
 }
