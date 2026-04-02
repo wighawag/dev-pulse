@@ -3,7 +3,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import {Orchestrator} from '../src/orchestrator.js';
-import {TaskManager} from '../src/task-manager.js';
 import {LABELS} from '../src/types.js';
 import type {Issue, DevPulseConfig, Task} from '../src/types.js';
 import type {IssueProvider} from '../src/providers/issue-provider.js';
@@ -107,7 +106,7 @@ describe('Orchestrator', () => {
 	let tmpDir: string;
 
 	beforeEach(() => {
-		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-pulse-orch-'));
+		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'whitesmith-orch-'));
 	});
 
 	afterEach(() => {

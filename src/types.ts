@@ -45,21 +45,21 @@ export interface TaskFrontmatter {
 }
 
 /**
- * Labels used by dev-pulse to track issue state
+ * Labels used by whitesmith to track issue state
  */
 export const LABELS = {
 	/** Agent is generating tasks for this issue */
-	INVESTIGATING: 'dev-pulse:investigating',
+	INVESTIGATING: 'whitesmith:investigating',
 	/** A PR with generated tasks has been opened */
-	TASKS_PROPOSED: 'dev-pulse:tasks-proposed',
+	TASKS_PROPOSED: 'whitesmith:tasks-proposed',
 	/** Task PR has been merged — tasks are on main */
-	TASKS_ACCEPTED: 'dev-pulse:tasks-accepted',
+	TASKS_ACCEPTED: 'whitesmith:tasks-accepted',
 	/** All tasks for this issue have been completed */
-	COMPLETED: 'dev-pulse:completed',
+	COMPLETED: 'whitesmith:completed',
 } as const;
 
 /**
- * Configuration for dev-pulse
+ * Configuration for whitesmith
  */
 export interface DevPulseConfig {
 	/** Command to run the agent harness */

@@ -9,6 +9,7 @@ import {Orchestrator} from './orchestrator.js';
 import {GitHubProvider} from './providers/github.js';
 import {PiHarness} from './harnesses/pi.js';
 import {TaskManager} from './task-manager.js';
+import pkg from '../package.json' with {type: 'json'};
 
 const DEFAULT_AGENT_CMD = 'pi';
 const DEFAULT_MAX_ITERATIONS = 10;
@@ -19,15 +20,18 @@ function createOrchestrator(config: DevPulseConfig): Orchestrator {
 	return new Orchestrator(config, issues, agent);
 }
 
+const packageName = pkg.name;
+const binName = typeof pkg.bin === 'string' ? pkg.bin : Object.keys(pkg.bin)[0];
+
 export function buildCli(): Command {
 	const program = new Command();
 
-	program.name('dev-pulse').description('AI-powered issue-to-PR pipeline').version('0.0.0');
+	program.name(binName).description('AI-powered issue-to-PR pipeline').version('0.0.0');
 
 	// --- run ---
 	program
 		.command('run')
-		.description('Run the main dev-pulse loop: investigate issues, implement tasks')
+		.description('Run the main whitesmith loop: investigate issues, implement tasks')
 		.argument('[work_dir]', 'Working directory', '.')
 		.option('--agent-cmd <cmd>', 'Agent harness command', DEFAULT_AGENT_CMD)
 		.option('--max-iterations <n>', 'Max iterations', String(DEFAULT_MAX_ITERATIONS))
@@ -73,7 +77,7 @@ export function buildCli(): Command {
 			const issues = new GitHubProvider(resolvedDir, opts.repo);
 			const taskMgr = new TaskManager(resolvedDir);
 
-			console.log('=== dev-pulse status ===\n');
+			console.log('=== whitesmith status ===\n');
 
 			// Show issues by state
 			for (const [name, label] of Object.entries(LABELS)) {
@@ -87,7 +91,7 @@ export function buildCli(): Command {
 				}
 			}
 
-			// Show new issues (no dev-pulse labels)
+			// Show new issues (no whitesmith labels)
 			const allLabels = Object.values(LABELS);
 			const newIssues = await issues.listIssues({noLabels: allLabels});
 			if (newIssues.length > 0) {
@@ -121,7 +125,7 @@ export function buildCli(): Command {
 			const issues = new GitHubProvider(resolvedDir, opts.repo);
 			const taskMgr = new TaskManager(resolvedDir);
 
-			console.log('=== dev-pulse reconcile ===\n');
+			console.log('=== whitesmith reconcile ===\n');
 
 			// Also handle tasks-proposed → tasks-accepted transition
 			// When a PR is merged, the tasks land on main, so if we see tasks on disk

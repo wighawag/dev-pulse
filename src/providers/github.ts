@@ -170,7 +170,7 @@ export class GitHubProvider implements IssueProvider {
 		for (const label of labels) {
 			try {
 				await this.gh(
-					`label create "${label}" --force --color 7B68EE --description "dev-pulse automation"`,
+					`label create "${label}" --force --color 7B68EE --description "whitesmith automation"`,
 				);
 			} catch {
 				// Label might already exist

@@ -9,7 +9,7 @@ describe('TaskManager', () => {
 	let mgr: TaskManager;
 
 	beforeEach(() => {
-		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-pulse-test-'));
+		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'whitesmith-test-'));
 		mgr = new TaskManager(tmpDir);
 	});
 

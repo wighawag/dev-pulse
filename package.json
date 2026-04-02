@@ -1,12 +1,12 @@
 {
-	"name": "dev-pulse",
+	"name": "whitesmith",
 	"version": "0.0.0",
 	"publishConfig": {
 		"access": "public"
 	},
 	"type": "module",
 	"bin": {
-		"dev-pulse": "./dist/cli.js"
+		"whitesmith": "./dist/cli.js"
 	},
 	"exports": {
 		".": {

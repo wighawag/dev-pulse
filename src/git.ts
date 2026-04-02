@@ -4,7 +4,7 @@ import {promisify} from 'node:util';
 const execAsync = promisify(exec);
 
 /**
- * Git operations for dev-pulse.
+ * Git operations for whitesmith.
  */
 export class GitManager {
 	private workDir: string;

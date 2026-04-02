@@ -1,4 +1,4 @@
-name: dev-pulse-reconcile
+name: whitesmith-reconcile
 
 on:
   pull_request:
@@ -22,10 +22,10 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install dev-pulse
-        run: npm install -g dev-pulse
+      - name: Install whitesmith
+        run: npm install -g whitesmith
 
       - name: Reconcile
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: dev-pulse reconcile .
+        run: whitesmith reconcile .

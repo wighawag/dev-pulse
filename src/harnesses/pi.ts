@@ -24,7 +24,7 @@ export class PiHarness implements AgentHarness {
 		logFile?: string;
 	}): Promise<{output: string; exitCode: number}> {
 		// Write prompt to a temp file to avoid shell escaping issues
-		const promptFile = path.join(options.workDir, '.dev-pulse-prompt.md');
+		const promptFile = path.join(options.workDir, '.whitesmith-prompt.md');
 		fs.writeFileSync(promptFile, options.prompt, 'utf-8');
 
 		try {
