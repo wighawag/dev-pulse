@@ -1,14 +1,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import {exec} from 'node:child_process';
-import {promisify} from 'node:util';
 import type {AgentHarness} from './harnesses/agent-harness.js';
 import type {IssueProvider} from './providers/issue-provider.js';
 import {GitManager} from './git.js';
 import {TaskManager} from './task-manager.js';
 import {LABELS} from './types.js';
-
-const execAsync = promisify(exec);
 
 export interface CommentConfig {
 	/** Issue or PR number */
@@ -46,6 +42,8 @@ interface WhitesmithContext {
 	tasks: Array<{id: string; title: string; filePath: string}>;
 	/** Whitesmith state label, if any */
 	stateLabel?: string;
+	/** The issue/PR number (used to tell the agent how to fetch comments) */
+	number: number;
 }
 
 /**
@@ -72,7 +70,7 @@ export async function handlePRComment(
 	await git.checkout(pr.branch);
 
 	// Gather whitesmith context based on branch naming
-	const context = await gatherContextForPR(pr.branch, config.workDir, issues);
+	const context = await gatherContextForPR(pr.branch, config.workDir, issues, config.number);
 
 	const prompt = buildPRCommentPrompt({
 		title: pr.title,
@@ -207,8 +205,9 @@ async function gatherContextForPR(
 	branch: string,
 	workDir: string,
 	issues: IssueProvider,
+	commentNumber: number,
 ): Promise<WhitesmithContext> {
-	const context: WhitesmithContext = {implementationPRs: [], tasks: []};
+	const context: WhitesmithContext = {implementationPRs: [], tasks: [], number: commentNumber};
 
 	const parsed = parseWhitesmithBranch(branch);
 	if (!parsed) return context;
@@ -250,7 +249,7 @@ async function gatherContextForIssue(
 	workDir: string,
 	issues: IssueProvider,
 ): Promise<WhitesmithContext> {
-	const context: WhitesmithContext = {implementationPRs: [], tasks: []};
+	const context: WhitesmithContext = {implementationPRs: [], tasks: [], number: issueNumber};
 
 	// Get the issue's labels for state
 	try {
@@ -352,12 +351,19 @@ function formatWhitesmithContext(context: WhitesmithContext): string {
 		sections.push(`### Pending Tasks\n\n${taskList}`);
 	}
 
+	sections.push(
+		`### Conversation History\n\n` +
+		`Previous comments are **not** included here to save context space. ` +
+		`If you need to read the conversation history, run:\n\n` +
+		`\`\`\`bash\ngh issue view ${context.number} --comments\n\`\`\``,
+	);
+
 	if (sections.length === 0) {
 		return '';
 	}
 
 	return `\n## Whitesmith Context\n\n` +
-		`The following is the current whitesmith pipeline state related to this issue/PR. ` +
+		`The following is the current whitesmith pipeline state and conversation history related to this issue/PR. ` +
 		`Use this context to provide informed responses.\n\n` +
 		sections.join('\n\n') + '\n';
 }
