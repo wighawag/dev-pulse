@@ -1,3 +1,6 @@
+# NOTE: This workflow requires the repo setting:
+#   Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests"
+# Without this, PR creation will fail with a permissions error.
 name: whitesmith
 
 on:

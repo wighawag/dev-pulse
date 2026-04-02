@@ -422,6 +422,40 @@ describe('Orchestrator', () => {
 			expect(issues.addLabel).toHaveBeenCalledWith(8, LABELS.TASKS_PROPOSED);
 		});
 
+		it('reuses existing PR when branch already has one during investigate', async () => {
+			const issue = makeIssue({number: 9});
+
+			const issues = createMockIssueProvider({
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [];
+						if (opts?.noLabels) return [issue];
+						return [];
+					}),
+				getPRForBranch: vi.fn().mockResolvedValue({
+					state: 'open',
+					url: 'https://github.com/test/repo/pull/99',
+				}),
+			});
+
+			const agent = createMockAgent({
+				run: vi.fn().mockImplementation(async () => {
+					writeTaskFile(tmpDir, 9, 1, 'the-task');
+					return {output: 'done', exitCode: 0};
+				}),
+			});
+
+			const config = createConfig(tmpDir, {noPush: false});
+			const orch = new Orchestrator(config, issues, agent);
+			await orch.run();
+
+			// Should NOT create a new PR
+			expect(issues.createPR).not.toHaveBeenCalled();
+			// Should still label as proposed
+			expect(issues.addLabel).toHaveBeenCalledWith(9, LABELS.TASKS_PROPOSED);
+		});
+
 		it('creates PR when noPush is false during implement', async () => {
 			const issue = makeIssue({number: 15});
 			writeTaskFile(tmpDir, 15, 1, 'do-thing');
