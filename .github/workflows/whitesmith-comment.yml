@@ -21,7 +21,7 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
-    if: contains(github.event.comment.body, '@agent')
+    if: contains(github.event.comment.body, '/whitesmith')
     steps:
       - name: React with eyes to acknowledge
         env:
