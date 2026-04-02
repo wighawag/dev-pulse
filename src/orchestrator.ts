@@ -131,11 +131,17 @@ export class Orchestrator {
 					continue;
 				}
 
-				// Check if someone is already working on it (branch exists)
 				const branch = `task/${task.id}`;
 				const branchExists = await this.issues.remoteBranchExists(branch);
 				if (branchExists) {
-					continue;
+					// Branch exists — check if it already has a PR
+					const pr = await this.issues.getPRForBranch(branch);
+					if (pr) {
+						// PR exists (open or merged) — truly skip
+						continue;
+					}
+					// Branch exists but no PR — previous attempt pushed but
+					// failed to create PR. Pick it up to finish the job.
 				}
 
 				return {type: 'implement', task, issue};
@@ -176,23 +182,47 @@ export class Orchestrator {
 		const issueTasksDir = `tasks/${issue.number}`;
 
 		try {
-			// Create branch from main
+			// Check if a previous attempt already produced work on this branch
+			const remoteBranchExists = await this.issues.remoteBranchExists(branch);
+			let agentNeeded = true;
+
 			await this.git.deleteLocalBranch(branch);
-			await this.git.checkout(branch, {create: true, startPoint: 'origin/main'});
 
-			// Run agent to generate tasks
-			const prompt = buildInvestigatePrompt(issue, issueTasksDir);
-			const {exitCode} = await this.agent.run({
-				prompt,
-				workDir: this.config.workDir,
-				logFile: this.config.logFile,
-			});
+			if (remoteBranchExists) {
+				// Checkout the existing remote branch to inspect it
+				await this.git.checkout(branch, {create: true, startPoint: `origin/${branch}`});
+				const existingTasks = this.tasks.listTasks(issue.number);
+				if (existingTasks.length > 0) {
+					// Previous attempt completed the work — skip the agent
+					console.log(
+						`Branch '${branch}' already exists with ${existingTasks.length} task(s), skipping agent`,
+					);
+					agentNeeded = false;
+				} else {
+					// Branch exists but no task files — start fresh
+					console.log(`Branch '${branch}' exists but has no tasks, starting fresh`);
+					await this.git.deleteLocalBranch(branch);
+					await this.git.checkout(branch, {create: true, startPoint: 'origin/main'});
+				}
+			} else {
+				await this.git.checkout(branch, {create: true, startPoint: 'origin/main'});
+			}
 
-			if (exitCode !== 0) {
-				console.error(`Agent failed with exit code ${exitCode}`);
-				await this.issues.removeLabel(issue.number, LABELS.INVESTIGATING);
-				await this.git.checkoutMain();
-				return;
+			if (agentNeeded) {
+				// Run agent to generate tasks
+				const prompt = buildInvestigatePrompt(issue, issueTasksDir);
+				const {exitCode} = await this.agent.run({
+					prompt,
+					workDir: this.config.workDir,
+					logFile: this.config.logFile,
+				});
+
+				if (exitCode !== 0) {
+					console.error(`Agent failed with exit code ${exitCode}`);
+					await this.issues.removeLabel(issue.number, LABELS.INVESTIGATING);
+					await this.git.checkoutMain();
+					return;
+				}
 			}
 
 			// Verify task files were created
@@ -261,22 +291,47 @@ export class Orchestrator {
 		const branch = `task/${task.id}`;
 
 		try {
-			// Create branch from main
+			// Check if a previous attempt already completed work on this branch.
+			// The agent deletes the task file when done, so if the task file
+			// is absent on the branch, the implementation is complete.
+			const remoteBranchExists = await this.issues.remoteBranchExists(branch);
+			let agentNeeded = true;
+
 			await this.git.deleteLocalBranch(branch);
-			await this.git.checkout(branch, {create: true, startPoint: 'origin/main'});
 
-			// Run agent to implement
-			const prompt = buildImplementPrompt(task, issue);
-			const {exitCode} = await this.agent.run({
-				prompt,
-				workDir: this.config.workDir,
-				logFile: this.config.logFile,
-			});
+			if (remoteBranchExists) {
+				await this.git.checkout(branch, {create: true, startPoint: `origin/${branch}`});
 
-			if (exitCode !== 0) {
-				console.error(`Agent failed with exit code ${exitCode}`);
-				await this.git.checkoutMain();
-				return;
+				// The task file path is relative to workDir. If it's gone, work is done.
+				const taskFileExists = await this.tasks.taskFileExists(task.filePath);
+				if (!taskFileExists) {
+					console.log(
+						`Branch '${branch}' already exists and task file deleted, skipping agent`,
+					);
+					agentNeeded = false;
+				} else {
+					// Task file still present — agent didn't finish. Start fresh.
+					console.log(`Branch '${branch}' exists but task file still present, starting fresh`);
+					await this.git.deleteLocalBranch(branch);
+					await this.git.checkout(branch, {create: true, startPoint: 'origin/main'});
+				}
+			} else {
+				await this.git.checkout(branch, {create: true, startPoint: 'origin/main'});
+			}
+
+			if (agentNeeded) {
+				const prompt = buildImplementPrompt(task, issue);
+				const {exitCode} = await this.agent.run({
+					prompt,
+					workDir: this.config.workDir,
+					logFile: this.config.logFile,
+				});
+
+				if (exitCode !== 0) {
+					console.error(`Agent failed with exit code ${exitCode}`);
+					await this.git.checkoutMain();
+					return;
+				}
 			}
 
 			// Verify we're still on the right branch

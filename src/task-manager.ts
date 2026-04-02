@@ -71,6 +71,13 @@ export class TaskManager {
 	}
 
 	/**
+	 * Check if a task file exists (by its repo-relative path)
+	 */
+	taskFileExists(filePath: string): boolean {
+		return fs.existsSync(path.resolve(this.workDir, filePath));
+	}
+
+	/**
 	 * Check if an issue has any remaining (pending) tasks
 	 */
 	hasRemainingTasks(issueNumber: number): boolean {

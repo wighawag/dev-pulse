@@ -279,7 +279,7 @@ describe('Orchestrator', () => {
 			writeTaskFile(tmpDir, 20, 1, 'base');
 			writeTaskFile(tmpDir, 20, 2, 'dependent', ['20-001']);
 
-			// Make branch exist for task 20-001 so it's skipped
+			// Make branch exist for task 20-001 with an open PR so it's truly skipped
 			const issues = createMockIssueProvider({
 				listIssues: vi
 					.fn()
@@ -289,6 +289,10 @@ describe('Orchestrator', () => {
 					}),
 				remoteBranchExists: vi.fn().mockImplementation(async (branch: string) => {
 					return branch === 'task/20-001';
+				}),
+				getPRForBranch: vi.fn().mockImplementation(async (branch: string) => {
+					if (branch === 'task/20-001') return {state: 'open', url: 'https://github.com/test/repo/pull/1'};
+					return null;
 				}),
 			});
 
@@ -304,7 +308,7 @@ describe('Orchestrator', () => {
 			expect(agent.run).not.toHaveBeenCalled();
 		});
 
-		it('skips tasks that already have a remote branch', async () => {
+		it('skips tasks that already have a remote branch with PR', async () => {
 			const issue = makeIssue({number: 30});
 			writeTaskFile(tmpDir, 30, 1, 'task-a');
 
@@ -316,6 +320,7 @@ describe('Orchestrator', () => {
 						return [];
 					}),
 				remoteBranchExists: vi.fn().mockResolvedValue(true),
+				getPRForBranch: vi.fn().mockResolvedValue({state: 'open', url: 'https://github.com/test/repo/pull/1'}),
 			});
 
 			const agent = createMockAgent();
@@ -325,6 +330,37 @@ describe('Orchestrator', () => {
 			await orch.run();
 
 			expect(agent.run).not.toHaveBeenCalled();
+		});
+
+		it('picks up task with remote branch but no PR (stalled push)', async () => {
+			const issue = makeIssue({number: 40});
+			writeTaskFile(tmpDir, 40, 1, 'stalled');
+
+			const issues = createMockIssueProvider({
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [issue];
+						return [];
+					}),
+				remoteBranchExists: vi.fn().mockResolvedValue(true),
+				// No PR exists — previous attempt pushed but failed to create PR
+				getPRForBranch: vi.fn().mockResolvedValue(null),
+			});
+
+			const agent = createMockAgent();
+			const config = createConfig(tmpDir);
+
+			const orch = new Orchestrator(config, issues, agent);
+			await orch.run();
+
+			// Should pick up the task (not skip it)
+			expect(agent.run).toHaveBeenCalledTimes(1);
+			expect(agent.run).toHaveBeenCalledWith(
+				expect.objectContaining({
+					prompt: expect.stringContaining('40-001'),
+				}),
+			);
 		});
 	});
 
