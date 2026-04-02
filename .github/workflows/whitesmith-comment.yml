@@ -77,117 +77,13 @@ jobs:
           chmod 600 ~/.pi/agent/auth.json
           echo "Configured pi auth from PI_AUTH_JSON"
 
-      - name: Determine if PR or issue
-        id: context
+      - name: Save comment body to file
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_TITLE: ${{ github.event.issue.title }}
-          PR_URL: ${{ github.event.issue.pull_request.url }}
-        run: |
-          ISSUE_NUMBER="${{ github.event.issue.number }}"
-
-          if [ -n "$PR_URL" ]; then
-            echo "is_pr=true" >> "$GITHUB_OUTPUT"
-            PR_BRANCH=$(gh pr view "$ISSUE_NUMBER" --json headRefName -q .headRefName)
-            echo "pr_branch=$PR_BRANCH" >> "$GITHUB_OUTPUT"
-          else
-            echo "is_pr=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
-
-      - name: Build prompt for PR comment
-        if: steps.context.outputs.is_pr == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_TITLE: ${{ github.event.issue.title }}
           COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
-          ISSUE_NUMBER="${{ steps.context.outputs.issue_number }}"
-          ISSUE_URL="${{ github.event.issue.html_url }}"
-          PR_BRANCH="${{ steps.context.outputs.pr_branch }}"
+          printf '%s' "$COMMENT_BODY" > .whitesmith-comment-body.txt
 
-          PR_BODY=$(gh pr view "$ISSUE_NUMBER" --json body -q .body)
-
-          cat > .whitesmith-prompt.md << 'PROMPT_EOF'
-          # Agent Task from PR Comment
-          PROMPT_EOF
-
-          # Use printf to safely append user-provided content (no heredoc expansion)
-          printf '\n## Pull Request\n\n' >> .whitesmith-prompt.md
-          printf -- '- **Title:** %s\n' "$ISSUE_TITLE" >> .whitesmith-prompt.md
-          printf -- '- **URL:** %s\n' "$ISSUE_URL" >> .whitesmith-prompt.md
-          printf -- '- **PR Number:** #%s\n' "$ISSUE_NUMBER" >> .whitesmith-prompt.md
-          printf -- '- **Branch:** %s\n' "$PR_BRANCH" >> .whitesmith-prompt.md
-          printf '\n### PR Description\n\n%s\n' "$PR_BODY" >> .whitesmith-prompt.md
-          printf '\n## Triggering Comment\n\n%s\n' "$COMMENT_BODY" >> .whitesmith-prompt.md
-          cat >> .whitesmith-prompt.md << PROMPT_EOF
-
-          ## Instructions
-
-          You are working on a pull request. The comment above is a request from a reviewer or contributor.
-
-          1. Check out the PR branch: \`git checkout ${PR_BRANCH}\`
-          2. Read and understand the comment request.
-          3. Make the requested changes.
-          4. Commit your changes with a descriptive message.
-          5. Push to the PR branch: \`git push origin ${PR_BRANCH}\`
-
-          Do NOT create a new PR. Push directly to the existing PR branch.
-          PROMPT_EOF
-
-          echo "Prompt built:"
-          cat .whitesmith-prompt.md
-
-      - name: Build prompt for issue comment
-        if: steps.context.outputs.is_pr != 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_TITLE: ${{ github.event.issue.title }}
-          COMMENT_BODY: ${{ github.event.comment.body }}
-        run: |
-          ISSUE_NUMBER="${{ steps.context.outputs.issue_number }}"
-          ISSUE_URL="${{ github.event.issue.html_url }}"
-
-          ISSUE_BODY=$(gh issue view "$ISSUE_NUMBER" --json body -q .body)
-
-          cat > .whitesmith-prompt.md << 'PROMPT_EOF'
-          # Agent Task from Issue Comment
-          PROMPT_EOF
-
-          # Use printf to safely append user-provided content (no heredoc expansion)
-          printf '\n## Issue\n\n' >> .whitesmith-prompt.md
-          printf -- '- **Title:** %s\n' "$ISSUE_TITLE" >> .whitesmith-prompt.md
-          printf -- '- **URL:** %s\n' "$ISSUE_URL" >> .whitesmith-prompt.md
-          printf -- '- **Issue Number:** #%s\n' "$ISSUE_NUMBER" >> .whitesmith-prompt.md
-          printf '\n### Issue Description\n\n%s\n' "$ISSUE_BODY" >> .whitesmith-prompt.md
-          printf '\n## Triggering Comment\n\n%s\n' "$COMMENT_BODY" >> .whitesmith-prompt.md
-          cat >> .whitesmith-prompt.md << 'PROMPT_EOF'
-
-          ## Instructions
-
-          You are responding to a comment on an issue (not a pull request).
-
-          1. Read and understand the issue description and the triggering comment.
-          2. You have full access to the repository code — read files, explore the codebase as needed.
-          3. Analyze the request and formulate a helpful response.
-          4. Write your response in Markdown to the file `.whitesmith-response.md`.
-
-          Your response will be posted as a comment on the issue.
-          Be thorough but concise. Include code snippets, file references, or suggestions as appropriate.
-          Do NOT create branches, commits, or pull requests.
-          PROMPT_EOF
-
-          echo "Prompt built:"
-          cat .whitesmith-prompt.md
-
-      - name: Checkout PR branch
-        if: steps.context.outputs.is_pr == 'true'
-        run: |
-          git checkout ${{ steps.context.outputs.pr_branch }}
-
-      - name: Run pi
-        id: agent
+      - name: Run whitesmith comment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -197,24 +93,12 @@ jobs:
             echo "ERROR: WHITESMITH_PROVIDER and WHITESMITH_MODEL repository variables are required."
             exit 1
           fi
-          pi --print --no-session --prompt-file .whitesmith-prompt.md \
+          whitesmith comment . \
+            --number "${{ github.event.issue.number }}" \
+            --body-file .whitesmith-comment-body.txt \
             --provider "$PROVIDER" \
-            --model "$MODEL"
-
-      - name: Post issue comment response
-        if: steps.context.outputs.is_pr != 'true' && success()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [ -f .whitesmith-response.md ]; then
-            gh issue comment ${{ github.event.issue.number }} \
-              --repo ${{ github.repository }} \
-              --body-file .whitesmith-response.md
-          else
-            gh issue comment ${{ github.event.issue.number }} \
-              --repo ${{ github.repository }} \
-              --body "🤖 Agent completed but did not produce a response file. Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
-          fi
+            --model "$MODEL" \
+            --post
 
       - name: React with checkmark on success
         if: success()

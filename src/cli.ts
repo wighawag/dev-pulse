@@ -9,6 +9,7 @@ import {Orchestrator} from './orchestrator.js';
 import {GitHubProvider} from './providers/github.js';
 import {PiHarness} from './harnesses/pi.js';
 import {TaskManager} from './task-manager.js';
+import {handlePRComment, handleIssueComment, isPullRequest} from './comment.js';
 import pkg from '../package.json' with {type: 'json'};
 
 const DEFAULT_AGENT_CMD = 'pi';
@@ -119,6 +120,79 @@ export function buildCli(): Command {
 					console.log(`  ${task.id} - ${task.title}${deps}`);
 				}
 				console.log('');
+			}
+		});
+
+	// --- comment ---
+	program
+		.command('comment')
+		.description('Handle a comment on an issue or PR (auto-detects which)')
+		.argument('[work_dir]', 'Working directory', '.')
+		.requiredOption('--number <n>', 'Issue or PR number')
+		.option('--body <text>', 'Comment body text (or use --body-file)')
+		.option('--body-file <path>', 'Read comment body from file instead of --body')
+		.option('--agent-cmd <cmd>', 'Agent harness command', DEFAULT_AGENT_CMD)
+		.requiredOption('--provider <name>', 'AI provider (e.g. anthropic, openai)')
+		.requiredOption('--model <id>', 'AI model ID (e.g. claude-opus-4-6)')
+		.option('--repo <owner/repo>', 'GitHub repo (auto-detected if omitted)')
+		.option('--log-file <path>', 'Log agent output to file')
+		.option('--post', 'Post the response as a GitHub comment (issue-only, otherwise prints to stdout)')
+		.action(async (workDir: string, opts) => {
+			const resolvedDir = path.resolve(workDir);
+			if (!fs.existsSync(resolvedDir)) {
+				console.error(`ERROR: Directory '${resolvedDir}' does not exist`);
+				process.exit(1);
+			}
+
+			// Read body from file if --body-file is provided, otherwise use --body
+			let commentBody: string;
+			if (opts.bodyFile) {
+				const bodyFilePath = path.resolve(opts.bodyFile);
+				if (!fs.existsSync(bodyFilePath)) {
+					console.error(`ERROR: Body file '${bodyFilePath}' does not exist`);
+					process.exit(1);
+				}
+				commentBody = fs.readFileSync(bodyFilePath, 'utf-8');
+			} else if (opts.body) {
+				commentBody = opts.body;
+			} else {
+				console.error('ERROR: Either --body or --body-file is required');
+				process.exit(1);
+			}
+
+			process.chdir(resolvedDir);
+
+			const issues = new GitHubProvider(resolvedDir, opts.repo);
+			const agent = new PiHarness({
+				cmd: opts.agentCmd,
+				provider: opts.provider,
+				model: opts.model,
+			});
+
+			await agent.validate();
+
+			const number = parseInt(opts.number, 10);
+			const commentConfig = {
+				number,
+				commentBody,
+				workDir: resolvedDir,
+				repo: opts.repo,
+				logFile: opts.logFile,
+				post: opts.post === true,
+			};
+
+			try {
+				const isPR = await isPullRequest(issues, number);
+				if (isPR) {
+					console.log(`Detected PR #${number}`);
+					await handlePRComment(commentConfig, issues, agent);
+				} else {
+					console.log(`Detected issue #${number}`);
+					await handleIssueComment(commentConfig, issues, agent);
+				}
+			} catch (error) {
+				console.error('ERROR:', error instanceof Error ? error.message : error);
+				process.exit(1);
 			}
 		});
 
