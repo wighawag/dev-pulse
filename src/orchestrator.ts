@@ -10,9 +10,13 @@ import {buildInvestigatePrompt, buildImplementPrompt} from './prompts.js';
  * Main orchestrator for whitesmith.
  *
  * The loop:
- * 1. Reconcile — check if any issues with tasks-accepted have all tasks done
+ * 1. Reconcile — issues with tasks-accepted where all tasks are done: create PR
  * 2. Investigate — pick an unlabeled issue, generate tasks
- * 3. Implement — pick an available task, implement it
+ * 3. Implement — pick an available task, implement it on issue branch
+ *
+ * Branch strategy:
+ * - Investigate: `investigate/<issue-number>` → PR for task review
+ * - Implement: `issue/<issue-number>` → accumulates commits, one PR when all tasks done
  */
 export class Orchestrator {
 	private config: DevPulseConfig;
@@ -152,7 +156,7 @@ export class Orchestrator {
 					continue;
 				}
 
-				const branch = `task/${task.id}`;
+				const branch = `issue/${issue.number}`;
 				const branchExists = await this.issues.remoteBranchExists(branch);
 				if (branchExists) {
 					// Branch exists — check if it already has a PR
@@ -173,21 +177,53 @@ export class Orchestrator {
 	}
 
 	/**
-	 * Phase 1: Reconcile — mark issue as completed, close it
+	 * Phase 1: Reconcile — all tasks done, create PR and mark issue as completed
 	 */
 	private async reconcile(issue: Issue): Promise<void> {
 		console.log(`Reconciling issue #${issue.number}: ${issue.title}`);
-		console.log('All tasks completed. Marking issue as done.');
+		console.log('All tasks completed. Creating PR.');
 
-		await this.issues.addLabel(issue.number, LABELS.COMPLETED);
-		await this.issues.removeLabel(issue.number, LABELS.TASKS_ACCEPTED);
-		await this.issues.comment(
-			issue.number,
-			`✅ All tasks for this issue have been implemented and merged. Closing.`,
-		);
-		await this.issues.closeIssue(issue.number);
+		const branch = `issue/${issue.number}`;
 
-		console.log(`Issue #${issue.number} closed.`);
+		if (this.config.noPush) {
+			console.log(`Branch '${branch}' ready (--no-push mode)`);
+			await this.issues.addLabel(issue.number, LABELS.COMPLETED);
+			await this.issues.removeLabel(issue.number, LABELS.TASKS_ACCEPTED);
+			return;
+		}
+
+		try {
+			// Check if PR already exists
+			const existingPR = await this.issues.getPRForBranch(branch);
+			let prUrl: string;
+
+			if (existingPR && existingPR.state === 'open') {
+				prUrl = existingPR.url;
+				console.log(`PR already exists: ${prUrl}`);
+			} else {
+				// Create PR summarizing all completed tasks
+				const prUrl = await this.issues.createPR({
+					head: branch,
+					base: 'main',
+					title: `feat(#${issue.number}): ${issue.title}`,
+					body: `## Implementation of #${issue.number}\n\n${issue.title}\n\nAll tasks have been implemented and tested.\n\n---\n*Implemented by whitesmith*\n\nCloses #${issue.number}`,
+				});
+				console.log(`PR created: ${prUrl}`);
+			}
+
+			await this.issues.addLabel(issue.number, LABELS.COMPLETED);
+			await this.issues.removeLabel(issue.number, LABELS.TASKS_ACCEPTED);
+			await this.issues.comment(
+				issue.number,
+				`✅ All tasks for this issue have been implemented. PR: ${prUrl}`,
+			);
+		} catch (error) {
+			console.error('Failed to create PR:', error instanceof Error ? error.message : error);
+			// Don't mark as completed if PR creation failed
+			return;
+		}
+
+		console.log(`Issue #${issue.number} marked as completed.`);
 	}
 
 	/**
@@ -303,13 +339,13 @@ export class Orchestrator {
 	}
 
 	/**
-	 * Phase 3: Implement — implement a task and create a PR
+	 * Phase 3: Implement — implement a task on the issue branch
 	 */
 	private async implement(task: Task, issue: Issue): Promise<void> {
 		console.log(`Implementing task ${task.id}: ${task.title}`);
 		console.log(`For issue #${issue.number}: ${issue.title}`);
 
-		const branch = `task/${task.id}`;
+		const branch = `issue/${issue.number}`;
 
 		try {
 			// Check if a previous attempt already completed work on this branch.
@@ -358,7 +394,7 @@ export class Orchestrator {
 			// Verify we're still on the right branch
 			await this.git.verifyBranch(branch);
 
-			// Ensure changes are committed
+			// Ensure changes are committed (one commit per task)
 			await this.git.commitAll(`feat(#${issue.number}): ${task.title}`);
 
 			if (this.config.noPush) {
@@ -366,24 +402,7 @@ export class Orchestrator {
 			} else {
 				// Force push since the branch may exist from a previous failed attempt
 				await this.git.forcePush(branch);
-
-				// Check if a PR already exists for this branch
-				const existingPR = await this.issues.getPRForBranch(branch);
-				let prUrl: string;
-
-				if (existingPR && existingPR.state === 'open') {
-					prUrl = existingPR.url;
-					console.log(`PR already exists: ${prUrl}`);
-				} else {
-					prUrl = await this.issues.createPR({
-						head: branch,
-						base: 'main',
-						title: `feat(#${issue.number}): ${task.title}`,
-						body: `## Task: ${task.title}\n\nImplements task \`${task.id}\` from issue #${issue.number}.\n\n### From the task spec:\n\n${task.content}\n\n---\n*Implemented by whitesmith*\n\nCloses #${issue.number} (if all tasks are complete)`,
-					});
-				}
-
-				console.log(`PR created: ${prUrl}`);
+				console.log(`Pushed to branch '${branch}'`);
 			}
 		} catch (error) {
 			console.error('Implementation failed:', error instanceof Error ? error.message : error);

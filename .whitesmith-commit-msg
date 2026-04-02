@@ -1,0 +1,17 @@
+feat: one issue = one PR (accumulate commits on issue branch)
+
+Changes:
+- Implement phase now uses issue/<number> branch instead of task/<id>
+- Each task implementation adds one commit to the issue branch
+- Reconcile phase creates PR when all tasks are complete
+- No more useless intermediate PRs for individual tasks
+
+Benefits:
+- Error recovery: issue branch persists across runs, can resume from last task
+- Cleaner review: one coherent PR per issue instead of N task PRs
+- Less CI overhead: 1 PR run vs N PR runs
+- Git history shows task progression via commits
+
+Fixes issue described in PR #17 comment where autoWork crashes mid-way
+would lose task files and prevent resumption. Now branch persists with
+all task files, enabling easy recovery.
