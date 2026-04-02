@@ -1,88 +1,88 @@
 /**
- * Status values for epics and tasks
+ * A GitHub issue (or equivalent) created by a human.
+ * Represents a problem, feature request, or improvement.
  */
-export type Status = 'pending' | 'in-progress' | 'done';
-
-/**
- * Represents an epic (high-level grouping of tasks)
- */
-export interface Epic {
-	id: string;
-	name: string;
-	dependsOn?: string;
-	status: Status;
+export interface Issue {
+	/** Issue number (e.g. 42) */
+	number: number;
+	/** Issue title */
+	title: string;
+	/** Issue body/description (markdown) */
+	body: string;
+	/** Current labels on the issue */
+	labels: string[];
+	/** Issue URL */
+	url: string;
 }
 
 /**
- * Represents a task within an epic
+ * A task generated from an issue.
+ * Each task represents a single PR's worth of work.
  */
 export interface Task {
+	/** Unique task ID: "<issue>-<seq>" e.g. "42-001" */
 	id: string;
-	epicId: string;
-	name: string;
-	status: Status;
-	acceptanceCriteria?: string[];
+	/** Parent issue number */
+	issue: number;
+	/** Human-readable title */
+	title: string;
+	/** Task IDs this depends on (must be completed first) */
+	dependsOn: string[];
+	/** Full markdown content of the task file (including frontmatter) */
+	content: string;
+	/** File path relative to repo root */
+	filePath: string;
 }
 
 /**
- * Configuration options for the ralph-epic CLI
+ * Parsed frontmatter from a task file
  */
-export interface RalphConfig {
-	/** Command to run the agent (default: "claude --dangerously-skip-permissions -p") */
+export interface TaskFrontmatter {
+	id: string;
+	issue: number;
+	title: string;
+	depends_on?: string[];
+}
+
+/**
+ * Labels used by dev-pulse to track issue state
+ */
+export const LABELS = {
+	/** Agent is generating tasks for this issue */
+	INVESTIGATING: 'dev-pulse:investigating',
+	/** A PR with generated tasks has been opened */
+	TASKS_PROPOSED: 'dev-pulse:tasks-proposed',
+	/** Task PR has been merged — tasks are on main */
+	TASKS_ACCEPTED: 'dev-pulse:tasks-accepted',
+	/** All tasks for this issue have been completed */
+	COMPLETED: 'dev-pulse:completed',
+} as const;
+
+/**
+ * Configuration for dev-pulse
+ */
+export interface DevPulseConfig {
+	/** Command to run the agent harness */
 	agentCmd: string;
-	/** Maximum number of iterations (default: 50) */
+	/** Maximum iterations per run */
 	maxIterations: number;
-	/** Branch prefix for epic branches (default: "ralph") */
-	branchPrefix: string;
-	/** Path to log file (optional) */
-	logFile?: string;
+	/** Working directory (the repo) */
+	workDir: string;
 	/** Skip pushing branches and creating PRs */
 	noPush: boolean;
 	/** Skip sleep between iterations (for testing) */
 	noSleep: boolean;
-	/** Working directory */
-	workDir: string;
+	/** Log file path */
+	logFile?: string;
+	/** GitHub repo in "owner/repo" format (auto-detected if not set) */
+	repo?: string;
 }
 
 /**
- * State saved between iterations to resume work
+ * What the orchestrator should do next
  */
-export interface RalphState {
-	epicId: string;
-	epicName: string;
-	dependsOn?: string;
-	branchName: string;
-}
-
-/**
- * Signals used to communicate between agent and orchestrator
- */
-export const SIGNALS = {
-	/** All epics are complete */
-	RALPH_COMPLETE: 'RALPH_COMPLETE',
-	/** Current epic is complete */
-	EPIC_COMPLETE: 'EPIC_COMPLETE',
-	/** PR description markers */
-	PR_DESCRIPTION_START: 'PR_DESCRIPTION_START',
-	PR_DESCRIPTION_END: 'PR_DESCRIPTION_END',
-} as const;
-
-/**
- * Result of parsing agent discovery output
- */
-export interface DiscoveryResult {
-	epicId: string;
-	epicName: string;
-	dependsOn?: string;
-	isComplete: boolean;
-}
-
-/**
- * Result of parsing agent work output
- */
-export interface WorkResult {
-	output: string;
-	isEpicComplete: boolean;
-	isAllComplete: boolean;
-	prDescription?: string;
-}
+export type Action =
+	| { type: 'reconcile'; issue: Issue }
+	| { type: 'investigate'; issue: Issue }
+	| { type: 'implement'; task: Task; issue: Issue }
+	| { type: 'idle' };

@@ -1,0 +1,58 @@
+name: dev-pulse
+
+on:
+  schedule:
+    # Run every 15 minutes
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      max_iterations:
+        description: 'Maximum iterations'
+        default: '3'
+        type: string
+
+concurrency:
+  group: dev-pulse-loop
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Configure git
+        run: |
+          git config user.name "dev-pulse[bot]"
+          git config user.email "dev-pulse[bot]@users.noreply.github.com"
+
+      - name: Install dev-pulse
+        run: npm install -g dev-pulse
+
+      # TODO: Install your preferred AI agent harness here
+      # For pi-coding-agent:
+      # - name: Install pi
+      #   run: npm install -g @mariozechner/pi-coding-agent
+
+      - name: Run dev-pulse
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Add your AI provider API key:
+          # ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          dev-pulse run . \
+            --agent-cmd "pi" \
+            --max-iterations ${{ inputs.max_iterations || '3' }}

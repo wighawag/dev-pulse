@@ -1,336 +1,294 @@
-import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
-import type { RalphConfig, Epic, RalphState } from './types.js';
-import type { TaskProvider } from './providers/task-provider.js';
-import { StateManager } from './state-manager.js';
-import { GitManager } from './git-manager.js';
-import { AgentRunner } from './agent-runner.js';
-import { PromptBuilder } from './prompt-builder.js';
-
-const execAsync = promisify(exec);
+import type { DevPulseConfig, Issue, Task, Action } from './types.js';
+import { LABELS } from './types.js';
+import type { IssueProvider } from './providers/issue-provider.js';
+import type { AgentHarness } from './harnesses/agent-harness.js';
+import { TaskManager } from './task-manager.js';
+import { GitManager } from './git.js';
+import { buildInvestigatePrompt, buildImplementPrompt } from './prompts.js';
 
 /**
- * Main orchestrator that runs the epic-based autonomous coding workflow
+ * Main orchestrator for dev-pulse.
+ *
+ * The loop:
+ * 1. Reconcile — check if any issues with tasks-accepted have all tasks done
+ * 2. Investigate — pick an unlabeled issue, generate tasks
+ * 3. Implement — pick an available task, implement it
  */
 export class Orchestrator {
-	private config: RalphConfig;
-	private provider: TaskProvider;
-	private stateManager: StateManager;
-	private gitManager: GitManager;
-	private agentRunner: AgentRunner;
-	private promptBuilder: PromptBuilder;
+	private config: DevPulseConfig;
+	private issues: IssueProvider;
+	private agent: AgentHarness;
+	private tasks: TaskManager;
+	private git: GitManager;
 
-	constructor(config: RalphConfig, provider: TaskProvider) {
+	constructor(config: DevPulseConfig, issues: IssueProvider, agent: AgentHarness) {
 		this.config = config;
-		this.provider = provider;
-		this.stateManager = new StateManager(config.workDir);
-		this.gitManager = new GitManager(config.workDir, config.branchPrefix);
-		this.agentRunner = new AgentRunner(config.logFile);
-		this.promptBuilder = new PromptBuilder();
+		this.issues = issues;
+		this.agent = agent;
+		this.tasks = new TaskManager(config.workDir);
+		this.git = new GitManager(config.workDir);
 	}
 
 	/**
-	 * Run the main orchestration loop
+	 * Run the main loop
 	 */
 	async run(): Promise<void> {
-		console.log('=== Ralph Wiggum Coding Agent (Epic Mode) ===');
+		console.log('=== dev-pulse ===');
 		console.log(`Working directory: ${this.config.workDir}`);
 		console.log(`Max iterations: ${this.config.maxIterations}`);
-		console.log(`Branch prefix: ${this.config.branchPrefix}`);
 		console.log(`Agent command: ${this.config.agentCmd}`);
-		console.log(`Log file: ${this.config.logFile || '<none>'}`);
-		console.log(`No push mode: ${this.config.noPush}`);
 		console.log('');
 
-		// Initialize log file
-		this.agentRunner.initLogFile(this.config.workDir);
+		// Ensure labels exist
+		await this.issues.ensureLabels(Object.values(LABELS));
 
-		// Fetch latest from origin
-		await this.gitManager.fetchOrigin();
-
-		// Main loop
-		for (let iteration = 1; iteration <= this.config.maxIterations; iteration++) {
+		for (let i = 1; i <= this.config.maxIterations; i++) {
 			console.log('');
-			console.log('==========================================');
-			console.log(`=== Iteration ${iteration} of ${this.config.maxIterations} ===`);
-			console.log('==========================================');
+			console.log(`=== Iteration ${i}/${this.config.maxIterations} ===`);
 
-			const result = await this.runIteration();
+			// Make sure we're on main with latest
+			await this.git.fetch();
+			await this.git.checkoutMain();
 
-			if (result === 'complete') {
-				console.log('');
-				console.log('=== ALL EPICS COMPLETED! ===');
-				console.log('All tasks in all epics have been implemented.');
-				console.log('');
-				await this.listPRs();
-				this.stateManager.clearState();
-				return;
+			// Decide what to do
+			const action = await this.decideAction();
+			console.log(`Action: ${action.type}`);
+
+			switch (action.type) {
+				case 'reconcile':
+					await this.reconcile(action.issue);
+					break;
+				case 'investigate':
+					await this.investigate(action.issue);
+					break;
+				case 'implement':
+					await this.implement(action.task, action.issue);
+					break;
+				case 'idle':
+					console.log('Nothing to do. All issues are either in-progress or completed.');
+					return;
 			}
 
-			// Sleep between iterations (unless disabled for testing)
-			if (!this.config.noSleep) {
-				await this.sleep(5000);
+			if (!this.config.noSleep && i < this.config.maxIterations) {
+				console.log('Sleeping 5s...');
+				await new Promise((r) => setTimeout(r, 5000));
 			}
 		}
 
 		console.log('');
 		console.log('=== Iteration limit reached ===');
-		console.log('Check markplane for current status.');
-		console.log('');
-		console.log('Active Ralph branches:');
-		await this.listRalphBranches();
 	}
 
 	/**
-	 * Run a single iteration
-	 * Returns 'complete' if all epics are done, 'continue' otherwise
+	 * Decide the next action to take
 	 */
-	private async runIteration(): Promise<'complete' | 'continue'> {
-		// STEP 1: Determine which epic to work on
-		let state = this.stateManager.loadState();
-		let epic: Epic;
-		let branchName: string;
-
-		if (state && state.epicId && state.branchName) {
-			// Resume existing epic
-			epic = {
-				id: state.epicId,
-				name: state.epicName,
-				status: 'in-progress',
-				dependsOn: state.dependsOn,
-			};
-			branchName = state.branchName;
-			console.log(`Resuming epic: ${epic.id} (${epic.name})`);
-		} else {
-			// Discover next epic
-			console.log('No saved state - discovering next epic...');
-			const discoveryResult = await this.discoverNextEpic();
-
-			if (discoveryResult.isComplete) {
-				return 'complete';
+	private async decideAction(): Promise<Action> {
+		// Priority 1: Reconcile — issues with tasks-accepted where all tasks are done
+		const acceptedIssues = await this.issues.listIssues({ labels: [LABELS.TASKS_ACCEPTED] });
+		for (const issue of acceptedIssues) {
+			if (!this.tasks.hasRemainingTasks(issue.number)) {
+				return { type: 'reconcile', issue };
 			}
-
-			if (!discoveryResult.epicId || !discoveryResult.epicName) {
-				throw new Error('Could not extract epic information from discovery');
-			}
-
-			epic = {
-				id: discoveryResult.epicId,
-				name: discoveryResult.epicName,
-				status: 'pending',
-				dependsOn: discoveryResult.dependsOn,
-			};
-
-			console.log('');
-			console.log(`Discovered epic: ${epic.id} - ${epic.name}`);
-			if (epic.dependsOn) {
-				console.log(`Depends on: ${epic.dependsOn}`);
-			}
-
-			// Set up the branch
-			branchName = await this.gitManager.setupEpicBranch(epic.id, epic.name, epic.dependsOn);
 		}
 
-		// STEP 2: Ensure we're on the correct branch
-		const currentBranch = await this.gitManager.getCurrentBranch();
-		if (currentBranch !== branchName) {
-			console.log(`Switching to branch: ${branchName}`);
-			await this.gitManager.checkout(branchName);
+		// Priority 2: Implement — find an available task
+		const implementAction = await this.findAvailableTask(acceptedIssues);
+		if (implementAction) {
+			return implementAction;
 		}
 
-		// Save state
-		const newState: RalphState = {
-			epicId: epic.id,
-			epicName: epic.name,
-			dependsOn: epic.dependsOn,
-			branchName,
-		};
-		this.stateManager.saveState(newState);
-
-		console.log('');
-		console.log(`Working on branch: ${branchName}`);
-		console.log('');
-
-		// STEP 3: Run agent to work on tasks
-		const workPrompt = this.promptBuilder.buildWorkPrompt(epic, branchName, this.provider);
-		const { output, exitCode } = await this.agentRunner.runAgent(workPrompt, this.config.agentCmd);
-
-		if (exitCode !== 0) {
-			throw new Error(`Agent command failed with exit code ${exitCode}`);
+		// Priority 3: Investigate — find a new issue (no dev-pulse labels)
+		const allDevPulseLabels = Object.values(LABELS);
+		const newIssues = await this.issues.listIssues({ noLabels: allDevPulseLabels });
+		if (newIssues.length > 0) {
+			// Pick the oldest issue
+			const issue = newIssues[newIssues.length - 1];
+			return { type: 'investigate', issue };
 		}
 
-		// STEP 4: Verify we're still on the correct branch
-		await this.gitManager.verifyBranch(branchName);
-
-		// STEP 5: Safety commit for any uncommitted changes
-		if (await this.gitManager.hasUncommittedChanges()) {
-			console.log('Found uncommitted changes - committing as safety net');
-			await this.gitManager.commitChanges(
-				`feat(${epic.id}): implement task (auto-commit)`,
-				this.stateManager.getStateFileName()
-			);
-		}
-
-		// STEP 6: Check for completion
-		const workResult = this.promptBuilder.parseWorkOutput(output);
-
-		if (workResult.isEpicComplete) {
-			console.log('');
-			console.log(`=== EPIC COMPLETED: ${epic.name} ===`);
-
-			// Create PR for this epic
-			await this.createEpicPR(branchName, epic.name, epic.dependsOn, workResult.prDescription);
-
-			// Clear state so next iteration discovers the next epic
-			this.stateManager.clearState();
-
-			console.log('');
-			console.log('Epic complete! Will discover next epic on next iteration.');
-			console.log('');
-		}
-
-		if (workResult.isAllComplete) {
-			return 'complete';
-		}
-
-		return 'continue';
+		return { type: 'idle' };
 	}
 
 	/**
-	 * Discover the next epic to work on
+	 * Find an available task to implement
 	 */
-	private async discoverNextEpic(): Promise<{
-		isComplete: boolean;
-		epicId?: string;
-		epicName?: string;
-		dependsOn?: string;
-	}> {
-		console.error('=== Discovering next epic ===');
+	private async findAvailableTask(
+		acceptedIssues: Issue[]
+	): Promise<{ type: 'implement'; task: Task; issue: Issue } | null> {
+		for (const issue of acceptedIssues) {
+			const issueTasks = this.tasks.listTasks(issue.number);
 
-		// Get list of epics that already have branches
-		const inProgressEpicId = this.stateManager.getInProgressEpicId();
-		const completedEpics = await this.gitManager.getCompletedEpicBranches(inProgressEpicId);
+			for (const task of issueTasks) {
+				// Check dependencies are satisfied
+				if (!this.tasks.areDependenciesSatisfied(task)) {
+					continue;
+				}
 
-		if (completedEpics.length > 0) {
-			console.error(`Epics with existing branches (considered complete): ${completedEpics.join(' ')}`);
+				// Check if someone is already working on it (branch exists)
+				const branch = `task/${task.id}`;
+				const branchExists = await this.issues.remoteBranchExists(branch);
+				if (branchExists) {
+					continue;
+				}
+
+				return { type: 'implement', task, issue };
+			}
 		}
 
-		const discoveryPrompt = this.promptBuilder.buildDiscoveryPrompt(completedEpics, this.provider);
-		const { output } = await this.agentRunner.runAgent(discoveryPrompt, this.config.agentCmd);
-
-		console.log(output);
-
-		return this.promptBuilder.parseDiscoveryOutput(output);
+		return null;
 	}
 
 	/**
-	 * Create a PR for a completed epic
+	 * Phase 1: Reconcile — mark issue as completed, close it
 	 */
-	private async createEpicPR(
-		branchName: string,
-		epicName: string,
-		dependsOn?: string,
-		prDescription?: string
-	): Promise<void> {
-		if (this.config.noPush) {
-			console.log('Skipping push and PR creation (--no-push mode)');
-			console.log(`Branch '${branchName}' is ready for manual push`);
-			return;
-		}
+	private async reconcile(issue: Issue): Promise<void> {
+		console.log(`Reconciling issue #${issue.number}: ${issue.title}`);
+		console.log('All tasks completed. Marking issue as done.');
 
-		console.log(`Pushing branch '${branchName}' to origin...`);
+		await this.issues.addLabel(issue.number, LABELS.COMPLETED);
+		await this.issues.removeLabel(issue.number, LABELS.TASKS_ACCEPTED);
+		await this.issues.comment(
+			issue.number,
+			`✅ All tasks for this issue have been implemented and merged. Closing.`
+		);
+		await this.issues.closeIssue(issue.number);
+
+		console.log(`Issue #${issue.number} closed.`);
+	}
+
+	/**
+	 * Phase 2: Investigate — generate tasks for a new issue
+	 */
+	private async investigate(issue: Issue): Promise<void> {
+		console.log(`Investigating issue #${issue.number}: ${issue.title}`);
+
+		// Claim the issue
+		await this.issues.addLabel(issue.number, LABELS.INVESTIGATING);
+
+		const branch = `investigate/${issue.number}`;
+		const issueTasksDir = `tasks/${issue.number}`;
 
 		try {
-			await this.gitManager.pushBranch(branchName);
-		} catch (error) {
-			console.error('ERROR: Failed to push branch to origin');
-			return;
-		}
+			// Create branch from main
+			await this.git.deleteLocalBranch(branch);
+			await this.git.checkout(branch, { create: true, startPoint: 'origin/main' });
 
-		// Determine base branch for PR
-		let baseBranch = 'main';
-		if (dependsOn) {
-			// Try to find the dependency branch
-			const completedEpics = await this.gitManager.getCompletedEpicBranches();
-			const branchPrefix = this.gitManager.getBranchPrefix();
-			// Note: In a real implementation, we'd look up the actual branch name
-			// For now, just use main
-		}
-
-		// Build PR body
-		let body: string;
-		if (prDescription) {
-			body = `${prDescription}
-
----
-*Automated PR created by Ralph autonomous coding agent.*`;
-		} else {
-			const depNote = dependsOn
-				? `This PR depends on the PR for epic ${dependsOn}`
-				: 'No dependencies - can be merged directly to main';
-
-			body = `## Epic: ${epicName}
-
-## Changes
-This PR contains all tasks completed for this epic.
-
-## Dependencies
-${depNote}
-
-## Review
-Please review the changes and merge when ready.
-
----
-*Automated PR created by Ralph autonomous coding agent.*`;
-		}
-
-		console.log(`Creating Pull Request (base: ${baseBranch})...`);
-
-		try {
-			await execAsync(
-				`gh pr create --base "${baseBranch}" --head "${branchName}" --title "feat: ${epicName}" --body "${body.replace(/"/g, '\\"')}"`,
-				{ cwd: this.config.workDir }
-			);
-			console.log('PR created successfully!');
-		} catch (error) {
-			console.log('WARNING: Failed to create PR. You may need to create it manually.');
-			console.log(`Branch '${branchName}' has been pushed to origin.`);
-		}
-	}
-
-	/**
-	 * List PRs created by Ralph
-	 */
-	private async listPRs(): Promise<void> {
-		console.log('Created PRs:');
-		try {
-			const { stdout } = await execAsync(`gh pr list --search "head:${this.config.branchPrefix}/epic-"`, {
-				cwd: this.config.workDir,
+			// Run agent to generate tasks
+			const prompt = buildInvestigatePrompt(issue, issueTasksDir);
+			const { exitCode } = await this.agent.run({
+				prompt,
+				workDir: this.config.workDir,
+				logFile: this.config.logFile,
 			});
-			console.log(stdout || "Use 'gh pr list' to see all Ralph PRs");
-		} catch {
-			console.log("Use 'gh pr list' to see all Ralph PRs");
+
+			if (exitCode !== 0) {
+				console.error(`Agent failed with exit code ${exitCode}`);
+				await this.issues.removeLabel(issue.number, LABELS.INVESTIGATING);
+				await this.git.checkoutMain();
+				return;
+			}
+
+			// Verify task files were created
+			await this.git.verifyBranch(branch);
+			const tasks = this.tasks.listTasks(issue.number);
+			if (tasks.length === 0) {
+				console.error('Agent did not create any task files');
+				await this.issues.removeLabel(issue.number, LABELS.INVESTIGATING);
+				await this.git.checkoutMain();
+				return;
+			}
+
+			// Ensure changes are committed
+			await this.git.commitAll(`tasks(#${issue.number}): generate implementation tasks`);
+
+			console.log(`Generated ${tasks.length} task(s) for issue #${issue.number}`);
+
+			if (this.config.noPush) {
+				console.log(`Branch '${branch}' ready (--no-push mode)`);
+			} else {
+				// Push and create PR
+				await this.git.push(branch);
+
+				const taskList = tasks.map((t) => `- [ ] **${t.id}**: ${t.title}`).join('\n');
+				const prUrl = await this.issues.createPR({
+					head: branch,
+					base: 'main',
+					title: `tasks(#${issue.number}): ${issue.title}`,
+					body: `## Generated Tasks for #${issue.number}\n\n${taskList}\n\n---\n*Generated by dev-pulse from issue #${issue.number}*`,
+				});
+
+				await this.issues.removeLabel(issue.number, LABELS.INVESTIGATING);
+				await this.issues.addLabel(issue.number, LABELS.TASKS_PROPOSED);
+				await this.issues.comment(
+					issue.number,
+					`📋 Tasks have been generated. Review the PR: ${prUrl}`
+				);
+
+				console.log(`PR created: ${prUrl}`);
+			}
+		} catch (error) {
+			console.error('Investigation failed:', error instanceof Error ? error.message : error);
+			await this.issues.removeLabel(issue.number, LABELS.INVESTIGATING);
 		}
+
+		// Return to main
+		await this.git.checkoutMain();
 	}
 
 	/**
-	 * List Ralph branches
+	 * Phase 3: Implement — implement a task and create a PR
 	 */
-	private async listRalphBranches(): Promise<void> {
+	private async implement(task: Task, issue: Issue): Promise<void> {
+		console.log(`Implementing task ${task.id}: ${task.title}`);
+		console.log(`For issue #${issue.number}: ${issue.title}`);
+
+		const branch = `task/${task.id}`;
+
 		try {
-			const { stdout } = await execAsync(`git branch | grep "${this.config.branchPrefix}/"`, {
-				cwd: this.config.workDir,
-			});
-			console.log(stdout);
-		} catch {
-			console.log('(no branches found)');
-		}
-	}
+			// Create branch from main
+			await this.git.deleteLocalBranch(branch);
+			await this.git.checkout(branch, { create: true, startPoint: 'origin/main' });
 
-	/**
-	 * Sleep for a given number of milliseconds
-	 */
-	private sleep(ms: number): Promise<void> {
-		return new Promise((resolve) => setTimeout(resolve, ms));
+			// Run agent to implement
+			const prompt = buildImplementPrompt(task, issue);
+			const { exitCode } = await this.agent.run({
+				prompt,
+				workDir: this.config.workDir,
+				logFile: this.config.logFile,
+			});
+
+			if (exitCode !== 0) {
+				console.error(`Agent failed with exit code ${exitCode}`);
+				await this.git.checkoutMain();
+				return;
+			}
+
+			// Verify we're still on the right branch
+			await this.git.verifyBranch(branch);
+
+			// Ensure changes are committed
+			await this.git.commitAll(`feat(#${issue.number}): ${task.title}`);
+
+			if (this.config.noPush) {
+				console.log(`Branch '${branch}' ready (--no-push mode)`);
+			} else {
+				// Push and create PR
+				await this.git.push(branch);
+
+				const prUrl = await this.issues.createPR({
+					head: branch,
+					base: 'main',
+					title: `feat(#${issue.number}): ${task.title}`,
+					body: `## Task: ${task.title}\n\nImplements task \`${task.id}\` from issue #${issue.number}.\n\n### From the task spec:\n\n${task.content}\n\n---\n*Implemented by dev-pulse*\n\nCloses #${issue.number} (if all tasks are complete)`,
+				});
+
+				console.log(`PR created: ${prUrl}`);
+			}
+		} catch (error) {
+			console.error('Implementation failed:', error instanceof Error ? error.message : error);
+		}
+
+		// Return to main
+		await this.git.checkoutMain();
 	}
 }
