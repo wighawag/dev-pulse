@@ -36,6 +36,22 @@ Currently checks `task/${task.id}` branch + PR existence to determine if a task 
   - `body`: summary listing all completed tasks
 - If tasks remain, just log that more tasks are pending
 
+### Changes to `decideAction()` / `hasRemainingTasks()`
+
+Currently, `decideAction()` triggers reconcile when `hasRemainingTasks(issue.number)` returns `false`. This checks task files on `main` (current working tree). But with the new flow, task files on `main` won't be deleted until the issue PR is merged — so `hasRemainingTasks()` will **always return `true`** for in-progress issues, and reconcile will never trigger.
+
+**Fix**: Update the reconcile check in `decideAction()` to look at the **issue branch** instead of `main`:
+
+- For each `tasks-accepted` issue, check if `issue/<number>` branch exists remotely
+- If it does, check whether all task files have been deleted on that branch (using `git show origin/issue/<number>:tasks/<number>/` or similar remote inspection)
+- If all task files are deleted on the issue branch → all tasks are complete → trigger reconcile
+- If the issue branch doesn't exist or still has task files → tasks remain → continue to implement
+
+This could be implemented by:
+1. Adding a new method like `hasRemainingTasksOnBranch(issueNumber: number)` that checks task file existence on the remote issue branch via git commands (e.g., `git ls-tree origin/issue/<number> -- tasks/<number>/`)
+2. Or updating `hasRemainingTasks()` to accept an optional branch parameter
+3. The key: the check must work **without** checking out the issue branch (we're on `main` during `decideAction()`)
+
 ### Changes to `reconcile()`
 
 Currently just closes the issue. Add **safety net** PR creation logic for crash recovery:
