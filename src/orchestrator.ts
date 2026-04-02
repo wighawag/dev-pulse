@@ -1,10 +1,10 @@
-import type { DevPulseConfig, Issue, Task, Action } from './types.js';
-import { LABELS } from './types.js';
-import type { IssueProvider } from './providers/issue-provider.js';
-import type { AgentHarness } from './harnesses/agent-harness.js';
-import { TaskManager } from './task-manager.js';
-import { GitManager } from './git.js';
-import { buildInvestigatePrompt, buildImplementPrompt } from './prompts.js';
+import type {DevPulseConfig, Issue, Task, Action} from './types.js';
+import {LABELS} from './types.js';
+import type {IssueProvider} from './providers/issue-provider.js';
+import type {AgentHarness} from './harnesses/agent-harness.js';
+import {TaskManager} from './task-manager.js';
+import {GitManager} from './git.js';
+import {buildInvestigatePrompt, buildImplementPrompt} from './prompts.js';
 
 /**
  * Main orchestrator for dev-pulse.
@@ -84,10 +84,10 @@ export class Orchestrator {
 	 */
 	private async decideAction(): Promise<Action> {
 		// Priority 1: Reconcile — issues with tasks-accepted where all tasks are done
-		const acceptedIssues = await this.issues.listIssues({ labels: [LABELS.TASKS_ACCEPTED] });
+		const acceptedIssues = await this.issues.listIssues({labels: [LABELS.TASKS_ACCEPTED]});
 		for (const issue of acceptedIssues) {
 			if (!this.tasks.hasRemainingTasks(issue.number)) {
-				return { type: 'reconcile', issue };
+				return {type: 'reconcile', issue};
 			}
 		}
 
@@ -99,22 +99,22 @@ export class Orchestrator {
 
 		// Priority 3: Investigate — find a new issue (no dev-pulse labels)
 		const allDevPulseLabels = Object.values(LABELS);
-		const newIssues = await this.issues.listIssues({ noLabels: allDevPulseLabels });
+		const newIssues = await this.issues.listIssues({noLabels: allDevPulseLabels});
 		if (newIssues.length > 0) {
 			// Pick the oldest issue
 			const issue = newIssues[newIssues.length - 1];
-			return { type: 'investigate', issue };
+			return {type: 'investigate', issue};
 		}
 
-		return { type: 'idle' };
+		return {type: 'idle'};
 	}
 
 	/**
 	 * Find an available task to implement
 	 */
 	private async findAvailableTask(
-		acceptedIssues: Issue[]
-	): Promise<{ type: 'implement'; task: Task; issue: Issue } | null> {
+		acceptedIssues: Issue[],
+	): Promise<{type: 'implement'; task: Task; issue: Issue} | null> {
 		for (const issue of acceptedIssues) {
 			const issueTasks = this.tasks.listTasks(issue.number);
 
@@ -131,7 +131,7 @@ export class Orchestrator {
 					continue;
 				}
 
-				return { type: 'implement', task, issue };
+				return {type: 'implement', task, issue};
 			}
 		}
 
@@ -149,7 +149,7 @@ export class Orchestrator {
 		await this.issues.removeLabel(issue.number, LABELS.TASKS_ACCEPTED);
 		await this.issues.comment(
 			issue.number,
-			`✅ All tasks for this issue have been implemented and merged. Closing.`
+			`✅ All tasks for this issue have been implemented and merged. Closing.`,
 		);
 		await this.issues.closeIssue(issue.number);
 
@@ -171,11 +171,11 @@ export class Orchestrator {
 		try {
 			// Create branch from main
 			await this.git.deleteLocalBranch(branch);
-			await this.git.checkout(branch, { create: true, startPoint: 'origin/main' });
+			await this.git.checkout(branch, {create: true, startPoint: 'origin/main'});
 
 			// Run agent to generate tasks
 			const prompt = buildInvestigatePrompt(issue, issueTasksDir);
-			const { exitCode } = await this.agent.run({
+			const {exitCode} = await this.agent.run({
 				prompt,
 				workDir: this.config.workDir,
 				logFile: this.config.logFile,
@@ -221,7 +221,7 @@ export class Orchestrator {
 				await this.issues.addLabel(issue.number, LABELS.TASKS_PROPOSED);
 				await this.issues.comment(
 					issue.number,
-					`📋 Tasks have been generated. Review the PR: ${prUrl}`
+					`📋 Tasks have been generated. Review the PR: ${prUrl}`,
 				);
 
 				console.log(`PR created: ${prUrl}`);
@@ -247,11 +247,11 @@ export class Orchestrator {
 		try {
 			// Create branch from main
 			await this.git.deleteLocalBranch(branch);
-			await this.git.checkout(branch, { create: true, startPoint: 'origin/main' });
+			await this.git.checkout(branch, {create: true, startPoint: 'origin/main'});
 
 			// Run agent to implement
 			const prompt = buildImplementPrompt(task, issue);
-			const { exitCode } = await this.agent.run({
+			const {exitCode} = await this.agent.run({
 				prompt,
 				workDir: this.config.workDir,
 				logFile: this.config.logFile,

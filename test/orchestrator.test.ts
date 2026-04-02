@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import {describe, it, expect, beforeEach, afterEach, vi} from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { Orchestrator } from '../src/orchestrator.js';
-import { TaskManager } from '../src/task-manager.js';
-import { LABELS } from '../src/types.js';
-import type { Issue, DevPulseConfig, Task } from '../src/types.js';
-import type { IssueProvider } from '../src/providers/issue-provider.js';
-import type { AgentHarness } from '../src/harnesses/agent-harness.js';
+import {Orchestrator} from '../src/orchestrator.js';
+import {TaskManager} from '../src/task-manager.js';
+import {LABELS} from '../src/types.js';
+import type {Issue, DevPulseConfig, Task} from '../src/types.js';
+import type {IssueProvider} from '../src/providers/issue-provider.js';
+import type {AgentHarness} from '../src/harnesses/agent-harness.js';
 
 // --- Helpers ---
 
@@ -40,7 +40,7 @@ function createMockIssueProvider(overrides: Partial<IssueProvider> = {}): IssueP
 
 function createMockAgent(overrides: Partial<AgentHarness> = {}): AgentHarness {
 	return {
-		run: vi.fn().mockResolvedValue({ output: '', exitCode: 0 }),
+		run: vi.fn().mockResolvedValue({output: '', exitCode: 0}),
 		...overrides,
 	};
 }
@@ -56,13 +56,21 @@ function createConfig(workDir: string, overrides: Partial<DevPulseConfig> = {}):
 	};
 }
 
-function writeTaskFile(tmpDir: string, issueNumber: number, seq: number, slug: string, dependsOn: string[] = []) {
+function writeTaskFile(
+	tmpDir: string,
+	issueNumber: number,
+	seq: number,
+	slug: string,
+	dependsOn: string[] = [],
+) {
 	const dir = path.join(tmpDir, 'tasks', String(issueNumber));
-	fs.mkdirSync(dir, { recursive: true });
+	fs.mkdirSync(dir, {recursive: true});
 	const seqStr = String(seq).padStart(3, '0');
 	const id = `${issueNumber}-${seqStr}`;
-	const depsStr = dependsOn.map(d => `"${d}"`).join(', ');
-	fs.writeFileSync(path.join(dir, `${seqStr}-${slug}.md`), `---
+	const depsStr = dependsOn.map((d) => `"${d}"`).join(', ');
+	fs.writeFileSync(
+		path.join(dir, `${seqStr}-${slug}.md`),
+		`---
 id: "${id}"
 issue: ${issueNumber}
 title: "Task ${slug}"
@@ -71,7 +79,8 @@ depends_on: [${depsStr}]
 
 ## Description
 Test task.
-`);
+`,
+	);
 	return id;
 }
 
@@ -91,7 +100,7 @@ vi.mock('../src/git.js', () => {
 		getDefaultBranch = vi.fn().mockResolvedValue('main');
 		verifyBranch = vi.fn().mockResolvedValue(undefined);
 	}
-	return { GitManager: MockGitManager };
+	return {GitManager: MockGitManager};
 });
 
 describe('Orchestrator', () => {
@@ -102,7 +111,7 @@ describe('Orchestrator', () => {
 	});
 
 	afterEach(() => {
-		fs.rmSync(tmpDir, { recursive: true, force: true });
+		fs.rmSync(tmpDir, {recursive: true, force: true});
 		vi.restoreAllMocks();
 	});
 
@@ -122,13 +131,15 @@ describe('Orchestrator', () => {
 
 	describe('reconcile', () => {
 		it('closes an issue when all tasks are done', async () => {
-			const issue = makeIssue({ number: 42, title: 'Feature X' });
+			const issue = makeIssue({number: 42, title: 'Feature X'});
 
 			const issues = createMockIssueProvider({
-				listIssues: vi.fn().mockImplementation(async (opts?: { labels?: string[]; noLabels?: string[] }) => {
-					if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [issue];
-					return [];
-				}),
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [issue];
+						return [];
+					}),
 			});
 
 			const agent = createMockAgent();
@@ -147,21 +158,23 @@ describe('Orchestrator', () => {
 
 	describe('investigate', () => {
 		it('runs agent and labels issue when investigating', async () => {
-			const issue = makeIssue({ number: 7, title: 'New feature' });
+			const issue = makeIssue({number: 7, title: 'New feature'});
 
 			const issues = createMockIssueProvider({
-				listIssues: vi.fn().mockImplementation(async (opts?: { labels?: string[]; noLabels?: string[] }) => {
-					if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [];
-					if (opts?.noLabels) return [issue];
-					return [];
-				}),
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [];
+						if (opts?.noLabels) return [issue];
+						return [];
+					}),
 			});
 
 			// Agent creates task files during its run
 			const agent = createMockAgent({
 				run: vi.fn().mockImplementation(async () => {
 					writeTaskFile(tmpDir, 7, 1, 'first-task');
-					return { output: 'done', exitCode: 0 };
+					return {output: 'done', exitCode: 0};
 				}),
 			});
 
@@ -175,23 +188,25 @@ describe('Orchestrator', () => {
 				expect.objectContaining({
 					prompt: expect.stringContaining('Issue #7'),
 					workDir: tmpDir,
-				})
+				}),
 			);
 		});
 
 		it('removes investigating label if agent fails', async () => {
-			const issue = makeIssue({ number: 3 });
+			const issue = makeIssue({number: 3});
 
 			const issues = createMockIssueProvider({
-				listIssues: vi.fn().mockImplementation(async (opts?: { labels?: string[]; noLabels?: string[] }) => {
-					if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [];
-					if (opts?.noLabels) return [issue];
-					return [];
-				}),
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [];
+						if (opts?.noLabels) return [issue];
+						return [];
+					}),
 			});
 
 			const agent = createMockAgent({
-				run: vi.fn().mockResolvedValue({ output: 'error', exitCode: 1 }),
+				run: vi.fn().mockResolvedValue({output: 'error', exitCode: 1}),
 			});
 
 			const config = createConfig(tmpDir);
@@ -203,19 +218,21 @@ describe('Orchestrator', () => {
 		});
 
 		it('removes investigating label if agent creates no tasks', async () => {
-			const issue = makeIssue({ number: 5 });
+			const issue = makeIssue({number: 5});
 
 			const issues = createMockIssueProvider({
-				listIssues: vi.fn().mockImplementation(async (opts?: { labels?: string[]; noLabels?: string[] }) => {
-					if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [];
-					if (opts?.noLabels) return [issue];
-					return [];
-				}),
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [];
+						if (opts?.noLabels) return [issue];
+						return [];
+					}),
 			});
 
 			// Agent succeeds but creates no task files
 			const agent = createMockAgent({
-				run: vi.fn().mockResolvedValue({ output: 'done', exitCode: 0 }),
+				run: vi.fn().mockResolvedValue({output: 'done', exitCode: 0}),
 			});
 
 			const config = createConfig(tmpDir);
@@ -228,15 +245,17 @@ describe('Orchestrator', () => {
 
 	describe('implement', () => {
 		it('runs agent to implement an available task', async () => {
-			const issue = makeIssue({ number: 10, title: 'Add logging' });
+			const issue = makeIssue({number: 10, title: 'Add logging'});
 
 			writeTaskFile(tmpDir, 10, 1, 'add-logger');
 
 			const issues = createMockIssueProvider({
-				listIssues: vi.fn().mockImplementation(async (opts?: { labels?: string[]; noLabels?: string[] }) => {
-					if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [issue];
-					return [];
-				}),
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [issue];
+						return [];
+					}),
 			});
 
 			const agent = createMockAgent();
@@ -250,22 +269,24 @@ describe('Orchestrator', () => {
 				expect.objectContaining({
 					prompt: expect.stringContaining('10-001'),
 					workDir: tmpDir,
-				})
+				}),
 			);
 		});
 
 		it('skips tasks with unsatisfied dependencies', async () => {
-			const issue = makeIssue({ number: 20 });
+			const issue = makeIssue({number: 20});
 
 			writeTaskFile(tmpDir, 20, 1, 'base');
 			writeTaskFile(tmpDir, 20, 2, 'dependent', ['20-001']);
 
 			// Make branch exist for task 20-001 so it's skipped
 			const issues = createMockIssueProvider({
-				listIssues: vi.fn().mockImplementation(async (opts?: { labels?: string[]; noLabels?: string[] }) => {
-					if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [issue];
-					return [];
-				}),
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [issue];
+						return [];
+					}),
 				remoteBranchExists: vi.fn().mockImplementation(async (branch: string) => {
 					return branch === 'task/20-001';
 				}),
@@ -284,14 +305,16 @@ describe('Orchestrator', () => {
 		});
 
 		it('skips tasks that already have a remote branch', async () => {
-			const issue = makeIssue({ number: 30 });
+			const issue = makeIssue({number: 30});
 			writeTaskFile(tmpDir, 30, 1, 'task-a');
 
 			const issues = createMockIssueProvider({
-				listIssues: vi.fn().mockImplementation(async (opts?: { labels?: string[]; noLabels?: string[] }) => {
-					if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [issue];
-					return [];
-				}),
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [issue];
+						return [];
+					}),
 				remoteBranchExists: vi.fn().mockResolvedValue(true),
 			});
 
@@ -307,17 +330,19 @@ describe('Orchestrator', () => {
 
 	describe('priority ordering', () => {
 		it('reconcile takes priority over implement', async () => {
-			const completedIssue = makeIssue({ number: 1, title: 'Done' });
-			const activeIssue = makeIssue({ number: 2, title: 'Active' });
+			const completedIssue = makeIssue({number: 1, title: 'Done'});
+			const activeIssue = makeIssue({number: 2, title: 'Active'});
 
 			// Issue 2 has tasks, issue 1 doesn't (= all done)
 			writeTaskFile(tmpDir, 2, 1, 'pending');
 
 			const issues = createMockIssueProvider({
-				listIssues: vi.fn().mockImplementation(async (opts?: { labels?: string[]; noLabels?: string[] }) => {
-					if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [completedIssue, activeIssue];
-					return [];
-				}),
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [completedIssue, activeIssue];
+						return [];
+					}),
 			});
 
 			const agent = createMockAgent();
@@ -332,17 +357,19 @@ describe('Orchestrator', () => {
 		});
 
 		it('implement takes priority over investigate', async () => {
-			const acceptedIssue = makeIssue({ number: 1, title: 'Has tasks' });
-			const newIssue = makeIssue({ number: 2, title: 'New issue' });
+			const acceptedIssue = makeIssue({number: 1, title: 'Has tasks'});
+			const newIssue = makeIssue({number: 2, title: 'New issue'});
 
 			writeTaskFile(tmpDir, 1, 1, 'pending');
 
 			const issues = createMockIssueProvider({
-				listIssues: vi.fn().mockImplementation(async (opts?: { labels?: string[]; noLabels?: string[] }) => {
-					if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [acceptedIssue];
-					if (opts?.noLabels) return [newIssue];
-					return [];
-				}),
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [acceptedIssue];
+						if (opts?.noLabels) return [newIssue];
+						return [];
+					}),
 			});
 
 			const agent = createMockAgent();
@@ -355,31 +382,33 @@ describe('Orchestrator', () => {
 			expect(agent.run).toHaveBeenCalledWith(
 				expect.objectContaining({
 					prompt: expect.stringContaining('1-001'),
-				})
+				}),
 			);
 		});
 	});
 
 	describe('push mode', () => {
 		it('creates PR when noPush is false during investigate', async () => {
-			const issue = makeIssue({ number: 8 });
+			const issue = makeIssue({number: 8});
 
 			const issues = createMockIssueProvider({
-				listIssues: vi.fn().mockImplementation(async (opts?: { labels?: string[]; noLabels?: string[] }) => {
-					if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [];
-					if (opts?.noLabels) return [issue];
-					return [];
-				}),
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [];
+						if (opts?.noLabels) return [issue];
+						return [];
+					}),
 			});
 
 			const agent = createMockAgent({
 				run: vi.fn().mockImplementation(async () => {
 					writeTaskFile(tmpDir, 8, 1, 'the-task');
-					return { output: 'done', exitCode: 0 };
+					return {output: 'done', exitCode: 0};
 				}),
 			});
 
-			const config = createConfig(tmpDir, { noPush: false });
+			const config = createConfig(tmpDir, {noPush: false});
 			const orch = new Orchestrator(config, issues, agent);
 			await orch.run();
 
@@ -388,24 +417,26 @@ describe('Orchestrator', () => {
 					head: 'investigate/8',
 					base: 'main',
 					title: expect.stringContaining('#8'),
-				})
+				}),
 			);
 			expect(issues.addLabel).toHaveBeenCalledWith(8, LABELS.TASKS_PROPOSED);
 		});
 
 		it('creates PR when noPush is false during implement', async () => {
-			const issue = makeIssue({ number: 15 });
+			const issue = makeIssue({number: 15});
 			writeTaskFile(tmpDir, 15, 1, 'do-thing');
 
 			const issues = createMockIssueProvider({
-				listIssues: vi.fn().mockImplementation(async (opts?: { labels?: string[]; noLabels?: string[] }) => {
-					if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [issue];
-					return [];
-				}),
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [issue];
+						return [];
+					}),
 			});
 
 			const agent = createMockAgent();
-			const config = createConfig(tmpDir, { noPush: false });
+			const config = createConfig(tmpDir, {noPush: false});
 
 			const orch = new Orchestrator(config, issues, agent);
 			await orch.run();
@@ -414,7 +445,7 @@ describe('Orchestrator', () => {
 				expect.objectContaining({
 					head: 'task/15-001',
 					base: 'main',
-				})
+				}),
 			);
 		});
 	});

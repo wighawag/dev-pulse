@@ -1,7 +1,7 @@
-import { exec } from 'node:child_process';
+import {exec} from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { AgentHarness } from './agent-harness.js';
+import type {AgentHarness} from './agent-harness.js';
 
 /**
  * Agent harness for @mariozechner/pi-coding-agent.
@@ -22,7 +22,7 @@ export class PiHarness implements AgentHarness {
 		prompt: string;
 		workDir: string;
 		logFile?: string;
-	}): Promise<{ output: string; exitCode: number }> {
+	}): Promise<{output: string; exitCode: number}> {
 		// Write prompt to a temp file to avoid shell escaping issues
 		const promptFile = path.join(options.workDir, '.dev-pulse-prompt.md');
 		fs.writeFileSync(promptFile, options.prompt, 'utf-8');
@@ -31,7 +31,7 @@ export class PiHarness implements AgentHarness {
 			const result = await this.exec(
 				`${this.cmd} --prompt-file "${promptFile}" --yes`,
 				options.workDir,
-				options.logFile
+				options.logFile,
 			);
 			return result;
 		} finally {
@@ -47,8 +47,8 @@ export class PiHarness implements AgentHarness {
 	private exec(
 		cmd: string,
 		workDir: string,
-		logFile?: string
-	): Promise<{ output: string; exitCode: number }> {
+		logFile?: string,
+	): Promise<{output: string; exitCode: number}> {
 		return new Promise((resolve) => {
 			const child = exec(cmd, {
 				cwd: workDir,
@@ -58,7 +58,7 @@ export class PiHarness implements AgentHarness {
 
 			let output = '';
 			const logStream = logFile
-				? fs.createWriteStream(path.resolve(workDir, logFile), { flags: 'a' })
+				? fs.createWriteStream(path.resolve(workDir, logFile), {flags: 'a'})
 				: null;
 
 			child.stdout?.on('data', (data: string) => {
@@ -75,7 +75,7 @@ export class PiHarness implements AgentHarness {
 
 			child.on('close', (code) => {
 				logStream?.end();
-				resolve({ output, exitCode: code ?? 1 });
+				resolve({output, exitCode: code ?? 1});
 			});
 		});
 	}

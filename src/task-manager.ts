@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import type { Task, TaskFrontmatter } from './types.js';
+import {parse as parseYaml, stringify as stringifyYaml} from 'yaml';
+import type {Task, TaskFrontmatter} from './types.js';
 
 const TASKS_DIR = 'tasks';
 
@@ -115,9 +115,15 @@ export class TaskManager {
 	/**
 	 * Write a task file
 	 */
-	writeTask(issueNumber: number, seq: number, slug: string, frontmatter: TaskFrontmatter, body: string): string {
+	writeTask(
+		issueNumber: number,
+		seq: number,
+		slug: string,
+		frontmatter: TaskFrontmatter,
+		body: string,
+	): string {
 		const dir = this.getIssueTasksDir(issueNumber);
-		fs.mkdirSync(dir, { recursive: true });
+		fs.mkdirSync(dir, {recursive: true});
 
 		const seqStr = String(seq).padStart(3, '0');
 		const fileName = `${seqStr}-${slug}.md`;
@@ -144,7 +150,7 @@ export class TaskManager {
 			const remaining = fs.readdirSync(dir).filter((f) => f.endsWith('.md'));
 			if (remaining.length === 0) {
 				// Remove directory if no more task files
-				fs.rmSync(dir, { recursive: true, force: true });
+				fs.rmSync(dir, {recursive: true, force: true});
 			}
 		}
 	}
@@ -174,7 +180,9 @@ export class TaskManager {
 
 		const parsed = parseYaml(match[1]) as TaskFrontmatter;
 		if (!parsed.id || parsed.issue === undefined || !parsed.title) {
-			throw new Error(`Task frontmatter is missing required fields (id, issue, title). Got: ${JSON.stringify(parsed)}`);
+			throw new Error(
+				`Task frontmatter is missing required fields (id, issue, title). Got: ${JSON.stringify(parsed)}`,
+			);
 		}
 
 		return parsed;

@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 
-import { Command } from 'commander';
+import {Command} from 'commander';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
-import type { DevPulseConfig } from './types.js';
-import { LABELS } from './types.js';
-import { Orchestrator } from './orchestrator.js';
-import { GitHubProvider } from './providers/github.js';
-import { PiHarness } from './harnesses/pi.js';
-import { TaskManager } from './task-manager.js';
+import type {DevPulseConfig} from './types.js';
+import {LABELS} from './types.js';
+import {Orchestrator} from './orchestrator.js';
+import {GitHubProvider} from './providers/github.js';
+import {PiHarness} from './harnesses/pi.js';
+import {TaskManager} from './task-manager.js';
 
 const DEFAULT_AGENT_CMD = 'pi';
 const DEFAULT_MAX_ITERATIONS = 10;
@@ -22,10 +22,7 @@ function createOrchestrator(config: DevPulseConfig): Orchestrator {
 export function buildCli(): Command {
 	const program = new Command();
 
-	program
-		.name('dev-pulse')
-		.description('AI-powered issue-to-PR pipeline')
-		.version('0.0.0');
+	program.name('dev-pulse').description('AI-powered issue-to-PR pipeline').version('0.0.0');
 
 	// --- run ---
 	program
@@ -80,7 +77,7 @@ export function buildCli(): Command {
 
 			// Show issues by state
 			for (const [name, label] of Object.entries(LABELS)) {
-				const list = await issues.listIssues({ labels: [label] });
+				const list = await issues.listIssues({labels: [label]});
 				if (list.length > 0) {
 					console.log(`${name} (${label}):`);
 					for (const issue of list) {
@@ -92,7 +89,7 @@ export function buildCli(): Command {
 
 			// Show new issues (no dev-pulse labels)
 			const allLabels = Object.values(LABELS);
-			const newIssues = await issues.listIssues({ noLabels: allLabels });
+			const newIssues = await issues.listIssues({noLabels: allLabels});
 			if (newIssues.length > 0) {
 				console.log('NEW (no label):');
 				for (const issue of newIssues) {
@@ -129,7 +126,7 @@ export function buildCli(): Command {
 			// Also handle tasks-proposed → tasks-accepted transition
 			// When a PR is merged, the tasks land on main, so if we see tasks on disk
 			// for an issue labeled tasks-proposed, it means the PR was merged
-			const proposedIssues = await issues.listIssues({ labels: [LABELS.TASKS_PROPOSED] });
+			const proposedIssues = await issues.listIssues({labels: [LABELS.TASKS_PROPOSED]});
 			for (const issue of proposedIssues) {
 				if (taskMgr.hasRemainingTasks(issue.number)) {
 					// Tasks exist on main = PR was merged
@@ -140,7 +137,7 @@ export function buildCli(): Command {
 			}
 
 			// Check accepted issues for completion
-			const acceptedIssues = await issues.listIssues({ labels: [LABELS.TASKS_ACCEPTED] });
+			const acceptedIssues = await issues.listIssues({labels: [LABELS.TASKS_ACCEPTED]});
 			for (const issue of acceptedIssues) {
 				if (!taskMgr.hasRemainingTasks(issue.number)) {
 					console.log(`Issue #${issue.number}: all tasks done, closing`);
@@ -148,7 +145,7 @@ export function buildCli(): Command {
 					await issues.removeLabel(issue.number, LABELS.TASKS_ACCEPTED);
 					await issues.comment(
 						issue.number,
-						'✅ All tasks for this issue have been implemented and merged. Closing.'
+						'✅ All tasks for this issue have been implemented and merged. Closing.',
 					);
 					await issues.closeIssue(issue.number);
 				}

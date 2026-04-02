@@ -11,5 +11,5 @@ export interface AgentHarness {
 		prompt: string;
 		workDir: string;
 		logFile?: string;
-	}): Promise<{ output: string; exitCode: number }>;
+	}): Promise<{output: string; exitCode: number}>;
 }

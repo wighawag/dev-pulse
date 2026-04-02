@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import {describe, it, expect, beforeEach, afterEach} from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { TaskManager } from '../src/task-manager.js';
+import {TaskManager} from '../src/task-manager.js';
 
 describe('TaskManager edge cases', () => {
 	let tmpDir: string;
@@ -14,19 +14,21 @@ describe('TaskManager edge cases', () => {
 	});
 
 	afterEach(() => {
-		fs.rmSync(tmpDir, { recursive: true, force: true });
+		fs.rmSync(tmpDir, {recursive: true, force: true});
 	});
 
 	function writeRawFile(relativePath: string, content: string) {
 		const fullPath = path.join(tmpDir, relativePath);
-		fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+		fs.mkdirSync(path.dirname(fullPath), {recursive: true});
 		fs.writeFileSync(fullPath, content);
 	}
 
 	function writeValidTask(issueNumber: number, seq: number, slug: string) {
 		const seqStr = String(seq).padStart(3, '0');
 		const id = `${issueNumber}-${seqStr}`;
-		writeRawFile(`tasks/${issueNumber}/${seqStr}-${slug}.md`, `---
+		writeRawFile(
+			`tasks/${issueNumber}/${seqStr}-${slug}.md`,
+			`---
 id: "${id}"
 issue: ${issueNumber}
 title: "Task ${slug}"
@@ -35,7 +37,8 @@ depends_on: []
 
 ## Description
 Test task.
-`);
+`,
+		);
 		return id;
 	}
 
@@ -46,23 +49,29 @@ Test task.
 		});
 
 		it('throws on missing required fields', () => {
-			writeRawFile('tasks/1/001-bad.md', `---
+			writeRawFile(
+				'tasks/1/001-bad.md',
+				`---
 id: "1-001"
 ---
 
 Missing issue and title.
-`);
+`,
+			);
 			expect(() => mgr.listTasks(1)).toThrow('missing required fields');
 		});
 
 		it('throws when id is missing', () => {
-			writeRawFile('tasks/1/001-bad.md', `---
+			writeRawFile(
+				'tasks/1/001-bad.md',
+				`---
 issue: 1
 title: "Has title"
 ---
 
 Content.
-`);
+`,
+			);
 			expect(() => mgr.listTasks(1)).toThrow('missing required fields');
 		});
 	});
@@ -82,13 +91,16 @@ Content.
 	describe('non-numeric directories are ignored', () => {
 		it('ignores non-numeric directories under tasks/', () => {
 			writeValidTask(1, 1, 'task-a');
-			writeRawFile('tasks/templates/example.md', `---
+			writeRawFile(
+				'tasks/templates/example.md',
+				`---
 id: "t-001"
 issue: 0
 title: "Template"
 ---
 Template content.
-`);
+`,
+			);
 
 			const issues = mgr.getIssuesWithTasks();
 			expect(issues).toEqual([1]);
@@ -105,7 +117,7 @@ Template content.
 		});
 
 		it('returns empty when tasks/ is empty', () => {
-			fs.mkdirSync(path.join(tmpDir, 'tasks'), { recursive: true });
+			fs.mkdirSync(path.join(tmpDir, 'tasks'), {recursive: true});
 			expect(mgr.listAllTasks()).toHaveLength(0);
 			expect(mgr.getIssuesWithTasks()).toEqual([]);
 		});
@@ -113,12 +125,18 @@ Template content.
 
 	describe('writeTask creates correct content', () => {
 		it('creates a file with YAML frontmatter and body', () => {
-			const relPath = mgr.writeTask(7, 3, 'add-logging', {
-				id: '7-003',
-				issue: 7,
-				title: 'Add logging',
-				depends_on: ['7-001', '7-002'],
-			}, '## Description\nAdd structured logging throughout the app.');
+			const relPath = mgr.writeTask(
+				7,
+				3,
+				'add-logging',
+				{
+					id: '7-003',
+					issue: 7,
+					title: 'Add logging',
+					depends_on: ['7-001', '7-002'],
+				},
+				'## Description\nAdd structured logging throughout the app.',
+			);
 
 			expect(relPath).toBe('tasks/7/003-add-logging.md');
 
@@ -135,12 +153,18 @@ Template content.
 		});
 
 		it('round-trips through readTask correctly', () => {
-			mgr.writeTask(10, 1, 'init', {
-				id: '10-001',
-				issue: 10,
-				title: 'Initialize project',
-				depends_on: [],
-			}, '## Description\nSet up the project scaffolding.');
+			mgr.writeTask(
+				10,
+				1,
+				'init',
+				{
+					id: '10-001',
+					issue: 10,
+					title: 'Initialize project',
+					depends_on: [],
+				},
+				'## Description\nSet up the project scaffolding.',
+			);
 
 			const tasks = mgr.listTasks(10);
 			expect(tasks).toHaveLength(1);
@@ -190,8 +214,10 @@ Template content.
 			writeValidTask(1, 1, 'base');
 
 			const dir = path.join(tmpDir, 'tasks', '2');
-			fs.mkdirSync(dir, { recursive: true });
-			fs.writeFileSync(path.join(dir, '001-dependent.md'), `---
+			fs.mkdirSync(dir, {recursive: true});
+			fs.writeFileSync(
+				path.join(dir, '001-dependent.md'),
+				`---
 id: "2-001"
 issue: 2
 title: "Depends on issue 1"
@@ -200,7 +226,8 @@ depends_on: ["1-001"]
 
 ## Description
 Cross-issue dependency.
-`);
+`,
+			);
 
 			const tasks = mgr.listTasks(2);
 			expect(tasks).toHaveLength(1);
@@ -221,7 +248,9 @@ Cross-issue dependency.
 			writeValidTask(10, 2, 'second');
 
 			const dir = path.join(tmpDir, 'tasks', '10');
-			fs.writeFileSync(path.join(dir, '003-third.md'), `---
+			fs.writeFileSync(
+				path.join(dir, '003-third.md'),
+				`---
 id: "10-003"
 issue: 10
 title: "Third task"
@@ -229,16 +258,17 @@ depends_on: ["10-001", "10-002"]
 ---
 
 Depends on both.
-`);
+`,
+			);
 
 			const tasks = mgr.listTasks(10);
-			const third = tasks.find(t => t.id === '10-003')!;
+			const third = tasks.find((t) => t.id === '10-003')!;
 
 			// Both deps exist - not satisfied
 			expect(mgr.areDependenciesSatisfied(third)).toBe(false);
 
 			// Delete one dep
-			const first = tasks.find(t => t.id === '10-001')!;
+			const first = tasks.find((t) => t.id === '10-001')!;
 			mgr.deleteTask(first.filePath);
 
 			// Still not satisfied (10-002 remains)
@@ -246,7 +276,7 @@ Depends on both.
 
 			// Delete second dep
 			const remaining = mgr.listTasks(10);
-			const second = remaining.find(t => t.id === '10-002')!;
+			const second = remaining.find((t) => t.id === '10-002')!;
 			mgr.deleteTask(second.filePath);
 
 			// Now satisfied
@@ -258,7 +288,9 @@ Depends on both.
 
 			const dir = path.join(tmpDir, 'tasks', '5');
 			// Overwrite with a dependency on a task that was never created
-			fs.writeFileSync(path.join(dir, '002-task.md'), `---
+			fs.writeFileSync(
+				path.join(dir, '002-task.md'),
+				`---
 id: "5-002"
 issue: 5
 title: "Task with phantom dep"
@@ -266,7 +298,8 @@ depends_on: ["5-001"]
 ---
 
 Depends on a task that doesn't exist.
-`);
+`,
+			);
 
 			const tasks = mgr.listTasks(5);
 			// 5-001 doesn't exist in pending tasks = already completed
@@ -281,7 +314,7 @@ Depends on a task that doesn't exist.
 			writeValidTask(1, 2, 'second');
 
 			const tasks = mgr.listTasks(1);
-			expect(tasks.map(t => t.id)).toEqual(['1-001', '1-002', '1-003']);
+			expect(tasks.map((t) => t.id)).toEqual(['1-001', '1-002', '1-003']);
 		});
 	});
 

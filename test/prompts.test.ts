@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { buildInvestigatePrompt, buildImplementPrompt } from '../src/prompts.js';
-import type { Issue, Task } from '../src/types.js';
+import {describe, it, expect} from 'vitest';
+import {buildInvestigatePrompt, buildImplementPrompt} from '../src/prompts.js';
+import type {Issue, Task} from '../src/types.js';
 
 const sampleIssue: Issue = {
 	number: 42,
@@ -15,7 +15,8 @@ const sampleTask: Task = {
 	issue: 42,
 	title: 'Setup auth middleware',
 	dependsOn: [],
-	content: '---\nid: "42-001"\nissue: 42\ntitle: "Setup auth middleware"\n---\n\n## Description\nAdd middleware.',
+	content:
+		'---\nid: "42-001"\nissue: 42\ntitle: "Setup auth middleware"\n---\n\n## Description\nAdd middleware.',
 	filePath: 'tasks/42/001-setup-auth-middleware.md',
 };
 

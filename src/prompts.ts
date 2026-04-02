@@ -1,4 +1,4 @@
-import type { Issue, Task } from './types.js';
+import type {Issue, Task} from './types.js';
 
 /**
  * Build the prompt for the "investigate" phase.

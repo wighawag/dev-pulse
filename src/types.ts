@@ -82,7 +82,7 @@ export interface DevPulseConfig {
  * What the orchestrator should do next
  */
 export type Action =
-	| { type: 'reconcile'; issue: Issue }
-	| { type: 'investigate'; issue: Issue }
-	| { type: 'implement'; task: Task; issue: Issue }
-	| { type: 'idle' };
+	| {type: 'reconcile'; issue: Issue}
+	| {type: 'investigate'; issue: Issue}
+	| {type: 'implement'; task: Task; issue: Issue}
+	| {type: 'idle'};

@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import {describe, it, expect, beforeEach, afterEach} from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { TaskManager } from '../src/task-manager.js';
+import {TaskManager} from '../src/task-manager.js';
 
 describe('TaskManager', () => {
 	let tmpDir: string;
@@ -14,12 +14,12 @@ describe('TaskManager', () => {
 	});
 
 	afterEach(() => {
-		fs.rmSync(tmpDir, { recursive: true, force: true });
+		fs.rmSync(tmpDir, {recursive: true, force: true});
 	});
 
 	function writeTaskFile(issueNumber: number, seq: number, slug: string, extra: string = '') {
 		const dir = path.join(tmpDir, 'tasks', String(issueNumber));
-		fs.mkdirSync(dir, { recursive: true });
+		fs.mkdirSync(dir, {recursive: true});
 		const seqStr = String(seq).padStart(3, '0');
 		const id = `${issueNumber}-${seqStr}`;
 		const content = `---
@@ -70,8 +70,8 @@ Test task.
 			10,
 			1,
 			'setup-database',
-			{ id: '10-001', issue: 10, title: 'Setup database' },
-			'## Description\nCreate the database schema.'
+			{id: '10-001', issue: 10, title: 'Setup database'},
+			'## Description\nCreate the database schema.',
 		);
 
 		expect(relPath).toBe('tasks/10/001-setup-database.md');

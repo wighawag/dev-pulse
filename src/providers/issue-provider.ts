@@ -1,4 +1,4 @@
-import type { Issue } from '../types.js';
+import type {Issue} from '../types.js';
 
 /**
  * Interface for issue sources.
@@ -8,7 +8,7 @@ export interface IssueProvider {
 	/**
 	 * List open issues, optionally filtered by labels
 	 */
-	listIssues(options?: { labels?: string[]; noLabels?: string[] }): Promise<Issue[]>;
+	listIssues(options?: {labels?: string[]; noLabels?: string[]}): Promise<Issue[]>;
 
 	/**
 	 * Get a single issue by number
@@ -38,12 +38,7 @@ export interface IssueProvider {
 	/**
 	 * Create a pull request and return its URL
 	 */
-	createPR(options: {
-		head: string;
-		base: string;
-		title: string;
-		body: string;
-	}): Promise<string>;
+	createPR(options: {head: string; base: string; title: string; body: string}): Promise<string>;
 
 	/**
 	 * Check if a remote branch exists
@@ -53,7 +48,9 @@ export interface IssueProvider {
 	/**
 	 * Check if there's an open or merged PR for a given head branch
 	 */
-	getPRForBranch(branch: string): Promise<{ state: 'open' | 'merged' | 'closed'; url: string } | null>;
+	getPRForBranch(
+		branch: string,
+	): Promise<{state: 'open' | 'merged' | 'closed'; url: string} | null>;
 
 	/**
 	 * Ensure required labels exist in the repo (create if missing)

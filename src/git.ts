@@ -1,5 +1,5 @@
-import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
+import {exec} from 'node:child_process';
+import {promisify} from 'node:util';
 
 const execAsync = promisify(exec);
 
@@ -14,7 +14,7 @@ export class GitManager {
 	}
 
 	private async git(args: string): Promise<string> {
-		const { stdout } = await execAsync(`git ${args}`, { cwd: this.workDir });
+		const {stdout} = await execAsync(`git ${args}`, {cwd: this.workDir});
 		return stdout.trim();
 	}
 
@@ -35,7 +35,7 @@ export class GitManager {
 	/**
 	 * Checkout a branch (create if it doesn't exist)
 	 */
-	async checkout(branch: string, options?: { create?: boolean; startPoint?: string }): Promise<void> {
+	async checkout(branch: string, options?: {create?: boolean; startPoint?: string}): Promise<void> {
 		if (options?.create) {
 			const startPoint = options.startPoint || 'origin/main';
 			await this.git(`checkout -b ${branch} ${startPoint}`);

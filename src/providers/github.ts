@@ -1,7 +1,7 @@
-import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
-import type { IssueProvider } from './issue-provider.js';
-import type { Issue } from '../types.js';
+import {exec} from 'node:child_process';
+import {promisify} from 'node:util';
+import type {IssueProvider} from './issue-provider.js';
+import type {Issue} from '../types.js';
 
 const execAsync = promisify(exec);
 
@@ -23,13 +23,13 @@ export class GitHubProvider implements IssueProvider {
 
 	private async gh(args: string): Promise<string> {
 		try {
-			const { stdout } = await execAsync(`gh ${args}${this.repoFlag()}`, {
+			const {stdout} = await execAsync(`gh ${args}${this.repoFlag()}`, {
 				cwd: this.workDir,
 				maxBuffer: 10 * 1024 * 1024,
 			});
 			return stdout.trim();
 		} catch (error) {
-			const e = error as { stdout?: string; stderr?: string; message?: string };
+			const e = error as {stdout?: string; stderr?: string; message?: string};
 			// Some gh commands return exit code 1 for "not found" results
 			if (e.stdout !== undefined) {
 				return e.stdout.trim();
@@ -38,7 +38,7 @@ export class GitHubProvider implements IssueProvider {
 		}
 	}
 
-	async listIssues(options?: { labels?: string[]; noLabels?: string[] }): Promise<Issue[]> {
+	async listIssues(options?: {labels?: string[]; noLabels?: string[]}): Promise<Issue[]> {
 		let cmd = 'issue list --state open --json number,title,body,labels,url --limit 100';
 
 		if (options?.labels && options.labels.length > 0) {
@@ -52,7 +52,7 @@ export class GitHubProvider implements IssueProvider {
 			number: number;
 			title: string;
 			body: string;
-			labels: Array<{ name: string }>;
+			labels: Array<{name: string}>;
 			url: string;
 		}> = JSON.parse(raw);
 
@@ -78,7 +78,7 @@ export class GitHubProvider implements IssueProvider {
 			number: number;
 			title: string;
 			body: string;
-			labels: Array<{ name: string }>;
+			labels: Array<{name: string}>;
 			url: string;
 		};
 		return {
@@ -107,8 +107,8 @@ export class GitHubProvider implements IssueProvider {
 		await new Promise<void>((resolve, reject) => {
 			const child = exec(
 				`gh issue comment ${number} --body-file -${this.repoFlag()}`,
-				{ cwd: this.workDir },
-				(err) => (err ? reject(err) : resolve())
+				{cwd: this.workDir},
+				(err) => (err ? reject(err) : resolve()),
 			);
 			child.stdin!.write(body);
 			child.stdin!.end();
@@ -119,12 +119,17 @@ export class GitHubProvider implements IssueProvider {
 		await this.gh(`issue close ${number}`);
 	}
 
-	async createPR(options: { head: string; base: string; title: string; body: string }): Promise<string> {
+	async createPR(options: {
+		head: string;
+		base: string;
+		title: string;
+		body: string;
+	}): Promise<string> {
 		const url = await new Promise<string>((resolve, reject) => {
 			const child = exec(
 				`gh pr create --head "${options.head}" --base "${options.base}" --title "${options.title}" --body-file -${this.repoFlag()}`,
-				{ cwd: this.workDir },
-				(err, stdout) => (err ? reject(err) : resolve(stdout.trim()))
+				{cwd: this.workDir},
+				(err, stdout) => (err ? reject(err) : resolve(stdout.trim())),
 			);
 			child.stdin!.write(options.body);
 			child.stdin!.end();
@@ -134,7 +139,7 @@ export class GitHubProvider implements IssueProvider {
 
 	async remoteBranchExists(branch: string): Promise<boolean> {
 		try {
-			const { stdout } = await execAsync(`git ls-remote --heads origin ${branch}`, {
+			const {stdout} = await execAsync(`git ls-remote --heads origin ${branch}`, {
 				cwd: this.workDir,
 			});
 			return stdout.trim().length > 0;
@@ -143,15 +148,19 @@ export class GitHubProvider implements IssueProvider {
 		}
 	}
 
-	async getPRForBranch(branch: string): Promise<{ state: 'open' | 'merged' | 'closed'; url: string } | null> {
+	async getPRForBranch(
+		branch: string,
+	): Promise<{state: 'open' | 'merged' | 'closed'; url: string} | null> {
 		try {
-			const raw = await this.gh(`pr list --head "${branch}" --state all --json state,url --limit 1`);
+			const raw = await this.gh(
+				`pr list --head "${branch}" --state all --json state,url --limit 1`,
+			);
 			if (!raw || raw === '[]') return null;
-			const prs = JSON.parse(raw) as Array<{ state: string; url: string }>;
+			const prs = JSON.parse(raw) as Array<{state: string; url: string}>;
 			if (prs.length === 0) return null;
 			const pr = prs[0];
 			const state = pr.state.toLowerCase() as 'open' | 'merged' | 'closed';
-			return { state, url: pr.url };
+			return {state, url: pr.url};
 		} catch {
 			return null;
 		}
@@ -160,7 +169,9 @@ export class GitHubProvider implements IssueProvider {
 	async ensureLabels(labels: string[]): Promise<void> {
 		for (const label of labels) {
 			try {
-				await this.gh(`label create "${label}" --force --color 7B68EE --description "dev-pulse automation"`);
+				await this.gh(
+					`label create "${label}" --force --color 7B68EE --description "dev-pulse automation"`,
+				);
 			} catch {
 				// Label might already exist
 			}
