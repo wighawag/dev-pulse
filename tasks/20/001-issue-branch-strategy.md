@@ -7,7 +7,7 @@ depends_on: []
 
 ## Description
 
-Change the `implement()` method in `orchestrator.ts` to use an `issue/<number>` branch instead of `task/<id>` branch. Each task implementation adds one commit to the shared issue branch. Remove PR creation from `implement()` entirely.
+Change the `implement()` method in `orchestrator.ts` to use an `issue/<number>` branch instead of `task/<id>` branch. Each task implementation adds one commit to the shared issue branch. Create the PR in `implement()` when the last task is completed (immediate, not deferred to reconcile). `reconcile()` acts as a safety net for crash recovery.
 
 Also update `findAvailableTask()` to check for task completion using the issue branch instead of per-task branches.
 
@@ -27,27 +27,32 @@ Currently checks `task/${task.id}` branch + PR existence to determine if a task 
 - If the issue branch already exists remotely, check it out and continue from there (accumulate commits)
 - If not, create it from `origin/main`
 - After agent runs, commit with message `feat(#${issue.number}): ${task.title}`
-- Push the branch but do **not** create a PR
-- The PR is created later in `reconcile()`
-
-### Changes to `reconcile()`
-
-Currently just closes the issue. Add PR creation logic:
-
-- Before closing, check if an `issue/<number>` branch exists
-- If it does and no PR exists for it, create a PR with:
+- Push the branch
+- After pushing, check if all tasks for the issue are now complete
+- If all tasks are done, create a PR immediately with:
   - `head: issue/${issue.number}`
   - `base: main`
   - `title: feat(#${issue.number}): ${issue.title}`
   - `body`: summary listing all completed tasks
+- If tasks remain, just log that more tasks are pending
+
+### Changes to `reconcile()`
+
+Currently just closes the issue. Add **safety net** PR creation logic for crash recovery:
+
+- Before closing, check if an `issue/<number>` branch exists with all tasks complete
+- If it does and no PR exists for it (e.g. agent crashed after last task push but before PR creation), create a PR
+- If a PR already exists, nothing extra to do
 - Then add the completed label and close the issue
+
+The key insight: `reconcile()` is a **fallback**, not the primary path. The happy path creates the PR immediately in `implement()` when the last task finishes, so there's no latency waiting for the next reconcile cycle.
 
 ## Acceptance Criteria
 
 - Branch naming uses `issue/<number>` format for implementation
 - Each task implementation adds one commit to the issue branch
-- No PRs created during `implement()` phase
-- PR created in `reconcile()` phase when all tasks are complete
+- PR created in `implement()` when the last task is completed (not deferred to reconcile)
+- `reconcile()` serves as safety net: creates PR if one doesn't exist but all tasks are done
 - PR body summarizes all completed tasks (from commit history or task metadata)
 - If agent crashes mid-way, the issue branch persists with previous commits and can resume
 - If the issue branch already exists with some tasks done, the next undone task is picked up
