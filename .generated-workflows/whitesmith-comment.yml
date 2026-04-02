@@ -1,0 +1,208 @@
+# NOTE: This file is generated in .generated-workflows/ because GitHub App tokens
+# cannot push to .github/workflows/. Move it manually to .github/workflows/ to activate.
+#
+# This workflow requires the repo setting:
+#   Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests"
+name: whitesmith-comment
+
+on:
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: whitesmith-comment-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    if: contains(github.event.comment.body, '@agent')
+    steps:
+      - name: React with eyes to acknowledge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions \
+            -f content=eyes
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Configure git
+        run: |
+          git config user.name "whitesmith[bot]"
+          git config user.email "whitesmith[bot]@users.noreply.github.com"
+
+      - name: Setup pnpm
+        if: github.repository == 'wighawag/whitesmith'
+        uses: pnpm/action-setup@v4
+
+      - name: Install or build whitesmith
+        run: |
+          if [ "${{ github.repository }}" = "wighawag/whitesmith" ]; then
+            echo "Running in whitesmith repo — building from source"
+            pnpm install
+            pnpm run build
+            pnpm link --global
+          else
+            npm install -g whitesmith
+          fi
+
+      - name: Install pi
+        run: npm install -g @mariozechner/pi-coding-agent
+
+      - name: Configure pi auth
+        env:
+          PI_AUTH_JSON: ${{ secrets.PI_AUTH_JSON }}
+        run: |
+          if [ -z "$PI_AUTH_JSON" ]; then
+            echo "ERROR: PI_AUTH_JSON secret is not configured."
+            echo "Set it to the contents of ~/.pi/agent/auth.json"
+            exit 1
+          fi
+          mkdir -p ~/.pi/agent
+          echo "$PI_AUTH_JSON" > ~/.pi/agent/auth.json
+          chmod 600 ~/.pi/agent/auth.json
+          echo "Configured pi auth from PI_AUTH_JSON"
+
+      - name: Determine context and build prompt
+        id: prompt
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          IS_PR="false"
+          if [ -n "${{ github.event.issue.pull_request.url }}" ]; then
+            IS_PR="true"
+          fi
+          echo "is_pr=$IS_PR" >> "$GITHUB_OUTPUT"
+
+          ISSUE_NUMBER="${{ github.event.issue.number }}"
+          ISSUE_TITLE="${{ github.event.issue.title }}"
+          ISSUE_URL="${{ github.event.issue.html_url }}"
+
+          cat > .whitesmith-prompt.md << 'PROMPT_HEADER'
+          # Agent Task from Comment
+
+          PROMPT_HEADER
+
+          if [ "$IS_PR" = "true" ]; then
+            PR_BRANCH=$(gh pr view "$ISSUE_NUMBER" --json headRefName -q .headRefName)
+            echo "pr_branch=$PR_BRANCH" >> "$GITHUB_OUTPUT"
+
+            cat >> .whitesmith-prompt.md << PROMPT_EOF
+          ## Pull Request
+
+          - **Title:** ${ISSUE_TITLE}
+          - **URL:** ${ISSUE_URL}
+          - **PR Number:** #${ISSUE_NUMBER}
+          - **Branch:** ${PR_BRANCH}
+
+          ### PR Description
+
+          $(gh pr view "$ISSUE_NUMBER" --json body -q .body)
+
+          ## Triggering Comment
+
+          $(cat <<'COMMENT_BODY'
+          ${{ github.event.comment.body }}
+          COMMENT_BODY
+          )
+
+          ## Instructions
+
+          You are working on a pull request. The comment above is a request from a reviewer or contributor.
+
+          1. Check out the PR branch: \`git checkout ${PR_BRANCH}\`
+          2. Read and understand the comment request.
+          3. Make the requested changes.
+          4. Commit your changes with a descriptive message.
+          5. Push to the PR branch: \`git push origin ${PR_BRANCH}\`
+
+          Do NOT create a new PR. Push directly to the existing PR branch.
+          PROMPT_EOF
+          else
+            cat >> .whitesmith-prompt.md << PROMPT_EOF
+          ## Issue
+
+          - **Title:** ${ISSUE_TITLE}
+          - **URL:** ${ISSUE_URL}
+          - **Issue Number:** #${ISSUE_NUMBER}
+
+          ### Issue Description
+
+          $(gh issue view "$ISSUE_NUMBER" --json body -q .body)
+
+          ## Triggering Comment
+
+          $(cat <<'COMMENT_BODY'
+          ${{ github.event.comment.body }}
+          COMMENT_BODY
+          )
+
+          ## Instructions
+
+          You are working on an issue. The comment above is a request from a contributor.
+
+          1. Create a new branch from the default branch (e.g., \`git checkout -b agent/issue-${ISSUE_NUMBER}\`).
+          2. Read and understand the comment request and the issue description.
+          3. Implement the requested changes.
+          4. Commit your changes with a descriptive message referencing #${ISSUE_NUMBER}.
+          5. Push the branch: \`git push origin agent/issue-${ISSUE_NUMBER}\`
+          6. Create a pull request targeting the default branch using: \`gh pr create --title "fix(#${ISSUE_NUMBER}): <summary>" --body "Addresses #${ISSUE_NUMBER}"\`
+
+          PROMPT_EOF
+          fi
+
+          echo "Prompt built:"
+          cat .whitesmith-prompt.md
+
+      - name: Checkout PR branch
+        if: steps.prompt.outputs.is_pr == 'true'
+        run: |
+          git checkout ${{ steps.prompt.outputs.pr_branch }}
+
+      - name: Run pi
+        id: agent
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PROVIDER="${{ vars.WHITESMITH_PROVIDER }}"
+          MODEL="${{ vars.WHITESMITH_MODEL }}"
+          if [ -z "$PROVIDER" ] || [ -z "$MODEL" ]; then
+            echo "ERROR: WHITESMITH_PROVIDER and WHITESMITH_MODEL repository variables are required."
+            exit 1
+          fi
+          pi --prompt-file .whitesmith-prompt.md \
+            --provider "$PROVIDER" \
+            --model "$MODEL"
+
+      - name: React with checkmark on success
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions \
+            -f content="+1"
+
+      - name: React with X and comment on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions \
+            -f content="-1"
+          gh issue comment ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --body "❌ Agent run failed for [this comment](${{ github.event.comment.html_url }}). Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
