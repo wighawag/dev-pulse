@@ -39,6 +39,7 @@ function createMockIssueProvider(overrides: Partial<IssueProvider> = {}): IssueP
 
 function createMockAgent(overrides: Partial<AgentHarness> = {}): AgentHarness {
 	return {
+		validate: vi.fn().mockResolvedValue(undefined),
 		run: vi.fn().mockResolvedValue({output: '', exitCode: 0}),
 		...overrides,
 	};
