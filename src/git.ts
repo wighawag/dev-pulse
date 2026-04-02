@@ -1,4 +1,6 @@
 import {exec} from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {promisify} from 'node:util';
 
 const execAsync = promisify(exec);
@@ -56,24 +58,37 @@ export class GitManager {
 	 * Stage all changes and commit
 	 */
 	async commitAll(message: string, exclude?: string[]): Promise<boolean> {
+		// Always exclude whitesmith temp files
+		const allExclude = ['.whitesmith-*', ...(exclude || [])];
+
+		// Remove any whitesmith temp files from the working tree
+		for (const entry of fs.readdirSync(this.workDir)) {
+			if (entry.startsWith('.whitesmith-')) {
+				try {
+					fs.unlinkSync(path.join(this.workDir, entry));
+				} catch {
+					// ignore
+				}
+			}
+		}
+
 		// Check if there are changes
 		const status = await this.git('status --porcelain');
 		if (!status) return false;
 
-		let addCmd = 'git add -A';
-		if (exclude && exclude.length > 0) {
-			// Add all then unstage excluded
-			await this.git('add -A');
-			for (const pattern of exclude) {
-				try {
-					await this.git(`reset HEAD -- ${pattern}`);
-				} catch {
-					// File might not be staged
-				}
+		// Add all then unstage excluded patterns
+		await this.git('add -A');
+		for (const pattern of allExclude) {
+			try {
+				await this.git(`reset HEAD -- ${pattern}`);
+			} catch {
+				// File might not be staged
 			}
-		} else {
-			await this.git('add -A');
 		}
+
+		// Check if anything is still staged after exclusions
+		const staged = await this.git('diff --cached --name-only');
+		if (!staged) return false;
 
 		await this.git(`commit -m "${message.replace(/"/g, '\\"')}"`);
 		return true;
