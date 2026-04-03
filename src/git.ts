@@ -13,6 +13,7 @@ export class GitManager {
 
 	constructor(workDir: string) {
 		this.workDir = workDir;
+		this.ensureExcluded();
 	}
 
 	private async git(args: string): Promise<string> {
@@ -25,6 +26,32 @@ export class GitManager {
 	 */
 	async getCurrentBranch(): Promise<string> {
 		return this.git('rev-parse --abbrev-ref HEAD');
+	}
+
+	/**
+	 * Ensure .whitesmith-* is excluded from git via .git/info/exclude.
+	 * This prevents the agent from accidentally committing temp files
+	 * without requiring changes to the user's .gitignore.
+	 */
+	private ensureExcluded(): void {
+		const gitDir = path.join(this.workDir, '.git');
+		if (!fs.existsSync(gitDir)) return;
+
+		const excludeDir = path.join(gitDir, 'info');
+		const excludeFile = path.join(excludeDir, 'exclude');
+		const pattern = '.whitesmith-*';
+
+		fs.mkdirSync(excludeDir, {recursive: true});
+
+		let content = '';
+		if (fs.existsSync(excludeFile)) {
+			content = fs.readFileSync(excludeFile, 'utf-8');
+		}
+
+		if (!content.split('\n').some((line) => line.trim() === pattern)) {
+			const separator = content.length > 0 && !content.endsWith('\n') ? '\n' : '';
+			fs.appendFileSync(excludeFile, `${separator}${pattern}\n`);
+		}
 	}
 
 	/**
