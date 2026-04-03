@@ -72,9 +72,7 @@ export interface IssueProvider {
 	/**
 	 * Get PR details by number (branch, state, body, etc.)
 	 */
-	getPR(
-		number: number,
-	): Promise<{
+	getPR(number: number): Promise<{
 		branch: string;
 		number: number;
 		title: string;

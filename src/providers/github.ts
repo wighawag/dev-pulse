@@ -200,9 +200,7 @@ export class GitHubProvider implements IssueProvider {
 		}
 	}
 
-	async getPR(
-		number: number,
-	): Promise<{
+	async getPR(number: number): Promise<{
 		branch: string;
 		number: number;
 		title: string;
