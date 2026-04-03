@@ -418,10 +418,10 @@ function generateMainWorkflow(config: CIConfig): string {
 name: whitesmith
 
 on:
-  schedule:
-    - cron: '*/15 * * * *'
   workflow_dispatch:
     inputs:
+      issue:
+        description: 'Issue number to target (leave empty for global scan)'
       max_iterations:
         description: 'Maximum iterations'
         default: '3'
@@ -434,7 +434,7 @@ env:
 ${envBlock}
 
 concurrency:
-  group: whitesmith-loop
+  group: \${{ inputs.issue && format('whitesmith-issue-{0}', inputs.issue) || 'whitesmith-global' }}
   cancel-in-progress: false
 
 permissions:
@@ -453,7 +453,12 @@ jobs:
       - uses: ./.github/actions/setup-whitesmith
 
       - run: |
+          ISSUE_FLAG=""
+          if [ -n "\${{ inputs.issue }}" ]; then
+            ISSUE_FLAG="--issue \${{ inputs.issue }}"
+          fi
           whitesmith run . \\
+            \$ISSUE_FLAG \\
             --provider "\${{ inputs.provider || env.WHITESMITH_PROVIDER }}" \\
             --model "\${{ inputs.model || env.WHITESMITH_MODEL }}" \\
             --max-iterations \${{ inputs.max_iterations || '3' }}
