@@ -337,34 +337,31 @@ ${indent(modelsJsonStr, 8)}
 	let installSteps: string;
 
 	if (config.dev) {
-		// Dev mode: build whitesmith from source and link globally
+		// Dev mode: build whitesmith from source using pnpm.
+		// We add pnpm's global bin to $GITHUB_PATH so that `whitesmith` and `pi`
+		// are available in all subsequent steps (persists across composite action
+		// steps and the calling workflow).
+		// We always rebuild (even on cache hit) because source changes per commit.
 		installSteps = `\
     - name: Setup pnpm
       uses: pnpm/action-setup@v4
 
-    - name: Install dependencies
-      shell: bash
-      run: pnpm install
-
-    - name: Build whitesmith
-      shell: bash
-      run: pnpm build
-
-    - name: Link whitesmith globally
+    - name: Add pnpm global bin to PATH
       shell: bash
       run: |
         pnpm setup
-        source ~/.bashrc 2>/dev/null || true
-        export PNPM_HOME="$HOME/.local/share/pnpm"
-        export PATH="$PNPM_HOME:$PATH"
+        echo "$HOME/.local/share/pnpm" >> "$GITHUB_PATH"
+
+    - name: Install dependencies and build whitesmith
+      shell: bash
+      run: |
+        pnpm install
+        pnpm run build
         pnpm link --global
 
     - name: Install pi
       shell: bash
-      run: |
-        export PNPM_HOME="$HOME/.local/share/pnpm"
-        export PATH="$PNPM_HOME:$PATH"
-        pnpm add -g @mariozechner/pi-coding-agent`;
+      run: pnpm add -g @mariozechner/pi-coding-agent`;
 	} else {
 		installSteps = `\
     - name: Get npm global prefix
