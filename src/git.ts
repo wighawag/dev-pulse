@@ -55,21 +55,6 @@ export class GitManager {
 	}
 
 	/**
-	 * Remove all .whitesmith-* temp files from the working directory.
-	 */
-	cleanupTempFiles(): void {
-		for (const entry of fs.readdirSync(this.workDir)) {
-			if (entry.startsWith('.whitesmith-')) {
-				try {
-					fs.unlinkSync(path.join(this.workDir, entry));
-				} catch {
-					// ignore
-				}
-			}
-		}
-	}
-
-	/**
 	 * Fetch latest from origin
 	 */
 	async fetch(): Promise<void> {
@@ -99,31 +84,12 @@ export class GitManager {
 	/**
 	 * Stage all changes and commit
 	 */
-	async commitAll(message: string, exclude?: string[]): Promise<boolean> {
-		// Always exclude whitesmith temp files
-		const allExclude = ['.whitesmith-*', ...(exclude || [])];
-
-		// Remove any whitesmith temp files from the working tree
-		this.cleanupTempFiles();
-
+	async commitAll(message: string): Promise<boolean> {
 		// Check if there are changes
 		const status = await this.git('status --porcelain');
 		if (!status) return false;
 
-		// Add all then unstage excluded patterns
 		await this.git('add -A');
-		for (const pattern of allExclude) {
-			try {
-				await this.git(`reset HEAD -- ${pattern}`);
-			} catch {
-				// File might not be staged
-			}
-		}
-
-		// Check if anything is still staged after exclusions
-		const staged = await this.git('diff --cached --name-only');
-		if (!staged) return false;
-
 		await this.git(`commit -m "${message.replace(/"/g, '\\"')}"`);
 		return true;
 	}
