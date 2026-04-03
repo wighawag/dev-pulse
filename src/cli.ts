@@ -47,6 +47,7 @@ export function buildCli(): Command {
 		.option('--no-push', 'Skip pushing and PR creation')
 		.option('--no-sleep', 'Skip sleep between iterations')
 		.option('--dry-run', 'Print what would be done without executing it')
+		.option('--auto-work', 'Enable auto-work mode (auto-approve task PRs)')
 		.action(async (workDir: string, opts) => {
 			const config: DevPulseConfig = {
 				agentCmd: opts.agentCmd,
@@ -57,6 +58,7 @@ export function buildCli(): Command {
 				noPush: opts.push === false,
 				noSleep: opts.sleep === false,
 				dryRun: opts.dryRun ?? false,
+				autoWork: opts.autoWork ?? false,
 				logFile: opts.logFile,
 				repo: opts.repo,
 			};
