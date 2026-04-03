@@ -35,6 +35,8 @@ interface CIConfig {
 	providers: ProviderEntry[];
 	defaultProvider: string;
 	defaultModel: string;
+	/** When true, install whitesmith from source (pnpm i + pnpm link --global) instead of npm. */
+	dev: boolean;
 }
 
 /**
@@ -332,6 +334,57 @@ ${indent(modelsJsonStr, 8)}
         MODELS_EOF`;
 	}
 
+	let installSteps: string;
+
+	if (config.dev) {
+		// Dev mode: build whitesmith from source and link globally
+		installSteps = `\
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install
+
+    - name: Build whitesmith
+      shell: bash
+      run: pnpm build
+
+    - name: Link whitesmith globally
+      shell: bash
+      run: |
+        pnpm setup
+        source ~/.bashrc 2>/dev/null || true
+        export PNPM_HOME="$HOME/.local/share/pnpm"
+        export PATH="$PNPM_HOME:$PATH"
+        pnpm link --global
+
+    - name: Install pi
+      shell: bash
+      run: |
+        export PNPM_HOME="$HOME/.local/share/pnpm"
+        export PATH="$PNPM_HOME:$PATH"
+        pnpm add -g @mariozechner/pi-coding-agent`;
+	} else {
+		installSteps = `\
+    - name: Get npm global prefix
+      id: npm-prefix
+      shell: bash
+      run: echo "dir=$(npm prefix -g)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache npm packages
+      id: npm-cache
+      uses: actions/cache@v4
+      with:
+        path: \${{ steps.npm-prefix.outputs.dir }}
+        key: whitesmith-\${{ runner.os }}-v1
+
+    - name: Install whitesmith and pi
+      if: steps.npm-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: npm install -g whitesmith @mariozechner/pi-coding-agent`;
+	}
+
 	return `\
 name: Setup whitesmith
 description: Install Node.js, whitesmith, pi, and configure AI provider auth
@@ -350,22 +403,7 @@ runs:
         git config user.name "whitesmith[bot]"
         git config user.email "whitesmith[bot]@users.noreply.github.com"
 
-    - name: Get npm global prefix
-      id: npm-prefix
-      shell: bash
-      run: echo "dir=$(npm prefix -g)" >> "$GITHUB_OUTPUT"
-
-    - name: Cache npm packages
-      id: npm-cache
-      uses: actions/cache@v4
-      with:
-        path: \${{ steps.npm-prefix.outputs.dir }}
-        key: whitesmith-\${{ runner.os }}-v1
-
-    - name: Install whitesmith and pi
-      if: steps.npm-cache.outputs.cache-hit != 'true'
-      shell: bash
-      run: npm install -g whitesmith @mariozechner/pi-coding-agent
+${installSteps}
 
 ${authStep}
 `;
@@ -646,6 +684,8 @@ export interface InstallCIOptions {
 	exportConfig?: string;
 	/** When used with --export-config, prompt for API keys and include them in the output. */
 	includeSecrets?: boolean;
+	/** Build whitesmith from source (pnpm i + link --global) instead of installing from npm. Auto-detected when inside the whitesmith repo. */
+	dev?: boolean;
 }
 
 /**
@@ -744,11 +784,29 @@ export async function installGitHubCI(
 		return;
 	}
 
+	// Auto-detect dev mode: check if we're inside the whitesmith repo itself
+	let dev = options.dev ?? false;
+	if (!dev) {
+		try {
+			const pkgPath = path.join(ctx.workDir, 'package.json');
+			if (fs.existsSync(pkgPath)) {
+				const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+				if (pkg.name === 'whitesmith') {
+					dev = true;
+					console.log('📦 Detected whitesmith repo — using dev mode (build from source)\n');
+				}
+			}
+		} catch {
+			// Ignore — not in whitesmith repo
+		}
+	}
+
 	const config: CIConfig = {
 		authMode,
 		providers,
 		defaultProvider,
 		defaultModel,
+		dev,
 	};
 
 	// ── Set GitHub secrets via gh CLI ─────────────────────────────────────

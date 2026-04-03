@@ -262,6 +262,7 @@ export function buildCli(): Command {
 		.option('--config <path>', 'Load provider config from a JSON file (skip interactive prompts)')
 		.option('--export-config <path>', 'Write the provider config as JSON to a file instead of generating workflows')
 		.option('--include-secrets', 'With --export-config, prompt for API keys and include them in the JSON output')
+		.option('--dev', 'Build whitesmith from source (pnpm i + link --global) instead of npm install')
 		.action(async (workDir: string, opts) => {
 			const resolvedDir = path.resolve(workDir);
 			if (!fs.existsSync(resolvedDir)) {
@@ -279,6 +280,7 @@ export function buildCli(): Command {
 					configFile: opts.config,
 					exportConfig: opts.exportConfig,
 					includeSecrets: opts.includeSecrets ?? false,
+					dev: opts.dev,
 				});
 			} catch (error) {
 				console.error('ERROR:', error instanceof Error ? error.message : error);
