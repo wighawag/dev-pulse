@@ -110,5 +110,6 @@ git commit -m "feat(#${issue.number}): ${task.title}"
 - Do NOT modify other task files.
 - You MUST delete \`${task.filePath}\` as part of your commit.
 - If the \`tasks/${task.issue}/\` directory is empty after deletion, remove it.
+- **Always use tool calls to make changes.** Never just describe what you plan to do — actually do it. If you produce a response with no tool calls, the session ends immediately and your work is lost.
 `;
 }
