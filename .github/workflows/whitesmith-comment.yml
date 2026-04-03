@@ -1,7 +1,4 @@
-# NOTE: This file is generated in .generated-workflows/ because GitHub App tokens
-# cannot push to .github/workflows/. Move it manually to .github/workflows/ to activate.
-#
-# This workflow requires the repo setting:
+# NOTE: This workflow requires the repo setting:
 #   Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests"
 name: whitesmith-comment
 
@@ -89,7 +86,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ steps.npm-prefix.outputs.dir }}
-          key: npm-global-${{ runner.os }}-${{ github.repository == 'wighawag/whitesmith' && 'source' || 'registry' }}-pi-v2
+          key: npm-global-${{ runner.os }}-${{ github.repository == 'wighawag/whitesmith' && 'source' || 'registry' }}-pi-v1
 
       - name: Setup pnpm
         if: github.repository == 'wighawag/whitesmith'
@@ -118,33 +115,6 @@ jobs:
         if: steps.npm-cache.outputs.cache-hit != 'true'
         run: npm install -g @mariozechner/pi-coding-agent
 
-      # Workaround for https://github.com/badlogic/pi-mono/issues/2743
-      # Anthropic's OAuth token endpoint now requires application/x-www-form-urlencoded
-      # but pi-ai sends application/json, causing HTTP 400 on token refresh.
-      - name: Patch pi OAuth token refresh
-        run: |
-          PI_GLOBAL=$(npm prefix -g)
-          echo "npm global prefix: $PI_GLOBAL"
-          PI_AI_OAUTH=$(find "$PI_GLOBAL" -path '*/pi-ai/dist/utils/oauth/anthropic.js' 2>/dev/null | head -1)
-          if [ -z "$PI_AI_OAUTH" ]; then
-            echo "ERROR: Could not find pi-ai anthropic.js to patch"
-            echo "Contents of npm global prefix:"
-            find "$PI_GLOBAL" -name 'anthropic.js' 2>/dev/null || echo "(no anthropic.js found)"
-            exit 1
-          fi
-          echo "Patching $PI_AI_OAUTH"
-          # Only patch if not already patched (idempotent)
-          if grep -q 'async function postJson' "$PI_AI_OAUTH"; then
-            sed -i 's/async function postJson(url, body) {/async function postForm(url, body) {/' "$PI_AI_OAUTH"
-            sed -i 's/"Content-Type": "application\/json",/"Content-Type": "application\/x-www-form-urlencoded",/' "$PI_AI_OAUTH"
-            sed -i 's/body: JSON.stringify(body),/body: new URLSearchParams(body).toString(),/' "$PI_AI_OAUTH"
-            sed -i 's/await postJson(TOKEN_URL,/await postForm(TOKEN_URL,/g' "$PI_AI_OAUTH"
-            echo "Patch applied successfully"
-          else
-            echo "Already patched, skipping"
-          fi
-          grep -n 'postForm\|x-www-form-urlencoded\|URLSearchParams' "$PI_AI_OAUTH"
-
       - name: Configure pi auth
         env:
           PI_AUTH_JSON: ${{ secrets.PI_AUTH_JSON }}
@@ -157,7 +127,11 @@ jobs:
           mkdir -p ~/.pi/agent
           echo "$PI_AUTH_JSON" > ~/.pi/agent/auth.json
           chmod 600 ~/.pi/agent/auth.json
-          echo "Configured pi auth from PI_AUTH_JSON"
+          echo "Auth providers: $(node -e "process.stdout.write(Object.keys(JSON.parse(require('fs').readFileSync(process.env.HOME+'/.pi/agent/auth.json','utf-8'))).join(', '))")"
+
+      # Workaround for https://github.com/badlogic/pi-mono/issues/2743
+      - name: Refresh OAuth token
+        run: node .github/scripts/refresh-oauth-token.mjs
 
       - name: Save comment body to file
         env:
