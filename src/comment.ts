@@ -214,7 +214,9 @@ export async function isPullRequest(issues: IssueProvider, number: number): Prom
  * - `investigate/<N>` → issue N (task proposal PR)
  * - `task/<N>-<seq>` → issue N (implementation PR)
  */
-function parseWhitesmithBranch(branch: string): {type: 'investigate' | 'task'; issueNumber: number; taskId?: string} | null {
+function parseWhitesmithBranch(
+	branch: string,
+): {type: 'investigate' | 'task'; issueNumber: number; taskId?: string} | null {
 	const investigateMatch = branch.match(/^investigate\/(\d+)$/);
 	if (investigateMatch) {
 		return {type: 'investigate', issueNumber: parseInt(investigateMatch[1], 10)};
@@ -339,7 +341,8 @@ function formatWhitesmithContext(context: WhitesmithContext): string {
 
 	if (context.stateLabel) {
 		const stateDescriptions: Record<string, string> = {
-			[LABELS.INVESTIGATING]: 'The agent is currently investigating this issue and generating tasks.',
+			[LABELS.INVESTIGATING]:
+				'The agent is currently investigating this issue and generating tasks.',
 			[LABELS.TASKS_PROPOSED]: 'Tasks have been proposed in a PR and are awaiting review.',
 			[LABELS.TASKS_ACCEPTED]: 'Tasks have been accepted and are being implemented.',
 			[LABELS.COMPLETED]: 'All tasks for this issue have been completed.',
@@ -351,29 +354,26 @@ function formatWhitesmithContext(context: WhitesmithContext): string {
 	if (context.parentIssue) {
 		sections.push(
 			`### Parent Issue\n\n` +
-			`- **Title:** ${context.parentIssue.title}\n` +
-			`- **URL:** ${context.parentIssue.url}\n` +
-			`- **Number:** #${context.parentIssue.number}\n` +
-			`- **Labels:** ${context.parentIssue.labels.join(', ') || 'none'}\n\n` +
-			`#### Issue Description\n\n${context.parentIssue.body}`,
+				`- **Title:** ${context.parentIssue.title}\n` +
+				`- **URL:** ${context.parentIssue.url}\n` +
+				`- **Number:** #${context.parentIssue.number}\n` +
+				`- **Labels:** ${context.parentIssue.labels.join(', ') || 'none'}\n\n` +
+				`#### Issue Description\n\n${context.parentIssue.body}`,
 		);
 	}
 
 	if (context.taskPR) {
 		sections.push(
 			`### Task Proposal PR\n\n` +
-			`- **Branch:** \`${context.taskPR.branch}\`\n` +
-			`- **State:** ${context.taskPR.state}\n` +
-			`- **URL:** ${context.taskPR.url}`,
+				`- **Branch:** \`${context.taskPR.branch}\`\n` +
+				`- **State:** ${context.taskPR.state}\n` +
+				`- **URL:** ${context.taskPR.url}`,
 		);
 	}
 
 	if (context.implementationPRs.length > 0) {
 		const prList = context.implementationPRs
-			.map(
-				(pr) =>
-					`- **#${pr.number}** ${pr.title} — \`${pr.branch}\` (${pr.state}) — ${pr.url}`,
-			)
+			.map((pr) => `- **#${pr.number}** ${pr.title} — \`${pr.branch}\` (${pr.state}) — ${pr.url}`)
 			.join('\n');
 		sections.push(`### Implementation PRs\n\n${prList}`);
 	}
@@ -387,19 +387,22 @@ function formatWhitesmithContext(context: WhitesmithContext): string {
 
 	sections.push(
 		`### Conversation History\n\n` +
-		`Previous comments are **not** included here to save context space. ` +
-		`If you need to read the conversation history, run:\n\n` +
-		`\`\`\`bash\ngh issue view ${context.number} --comments\n\`\`\``,
+			`Previous comments are **not** included here to save context space. ` +
+			`If you need to read the conversation history, run:\n\n` +
+			`\`\`\`bash\ngh issue view ${context.number} --comments\n\`\`\``,
 	);
 
 	if (sections.length === 0) {
 		return '';
 	}
 
-	return `\n## Whitesmith Context\n\n` +
+	return (
+		`\n## Whitesmith Context\n\n` +
 		`The following is the current whitesmith pipeline state and conversation history related to this issue/PR. ` +
 		`Use this context to provide informed responses.\n\n` +
-		sections.join('\n\n') + '\n';
+		sections.join('\n\n') +
+		'\n'
+	);
 }
 
 interface PRCommentPromptArgs {

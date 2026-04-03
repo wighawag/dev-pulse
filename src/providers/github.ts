@@ -202,11 +202,16 @@ export class GitHubProvider implements IssueProvider {
 
 	async getPR(
 		number: number,
-	): Promise<{branch: string; number: number; title: string; state: string; url: string; body: string} | null> {
+	): Promise<{
+		branch: string;
+		number: number;
+		title: string;
+		state: string;
+		url: string;
+		body: string;
+	} | null> {
 		try {
-			const raw = await this.gh(
-				`pr view ${number} --json headRefName,number,title,state,url,body`,
-			);
+			const raw = await this.gh(`pr view ${number} --json headRefName,number,title,state,url,body`);
 			if (!raw) return null;
 			const pr = JSON.parse(raw) as {
 				headRefName: string;

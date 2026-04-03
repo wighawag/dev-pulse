@@ -141,7 +141,10 @@ export function buildCli(): Command {
 		.requiredOption('--model <id>', 'AI model ID (e.g. claude-opus-4-6)')
 		.option('--repo <owner/repo>', 'GitHub repo (auto-detected if omitted)')
 		.option('--log-file <path>', 'Log agent output to file')
-		.option('--post', 'Post the response as a GitHub comment (issue-only, otherwise prints to stdout)')
+		.option(
+			'--post',
+			'Post the response as a GitHub comment (issue-only, otherwise prints to stdout)',
+		)
 		.action(async (workDir: string, opts) => {
 			const resolvedDir = path.resolve(workDir);
 			if (!fs.existsSync(resolvedDir)) {
@@ -250,9 +253,15 @@ export function buildCli(): Command {
 		.command('install-ci')
 		.description('Set up GitHub Actions workflows for whitesmith CI')
 		.argument('[work_dir]', 'Working directory (target repository)', '.')
-		.option('--auth-json', 'Use pi auth.json instead of models.json (requires PI_AUTH_JSON and GH_PAT secrets)')
+		.option(
+			'--auth-json',
+			'Use pi auth.json instead of models.json (requires PI_AUTH_JSON and GH_PAT secrets)',
+		)
 		.option('--repo <owner/repo>', 'GitHub repo (auto-detected if omitted)')
-		.option('--fake', 'Write workflows to .fake/workflows/ instead of .github/workflows/ (for testing)')
+		.option(
+			'--fake',
+			'Write workflows to .fake/workflows/ instead of .github/workflows/ (for testing)',
+		)
 		.action(async (workDir: string, opts) => {
 			const resolvedDir = path.resolve(workDir);
 			if (!fs.existsSync(resolvedDir)) {

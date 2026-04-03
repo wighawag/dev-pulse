@@ -74,5 +74,12 @@ export interface IssueProvider {
 	 */
 	getPR(
 		number: number,
-	): Promise<{branch: string; number: number; title: string; state: string; url: string; body: string} | null>;
+	): Promise<{
+		branch: string;
+		number: number;
+		title: string;
+		state: string;
+		url: string;
+		body: string;
+	} | null>;
 }

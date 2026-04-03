@@ -151,7 +151,9 @@ async function promptCustomProvider(): Promise<ProviderEntry> {
 	};
 }
 
-async function promptDefaults(providers: ProviderEntry[]): Promise<{provider: string; model: string}> {
+async function promptDefaults(
+	providers: ProviderEntry[],
+): Promise<{provider: string; model: string}> {
 	let provider: string;
 	let model: string;
 
@@ -690,7 +692,10 @@ export interface InstallCIOptions {
 	fake?: boolean;
 }
 
-export async function installGitHubCI(ctx: GitHubCIContext, options: InstallCIOptions): Promise<void> {
+export async function installGitHubCI(
+	ctx: GitHubCIContext,
+	options: InstallCIOptions,
+): Promise<void> {
 	const {authMode} = options;
 
 	console.log('=== whitesmith install-ci (GitHub) ===\n');
@@ -742,9 +747,7 @@ export async function installGitHubCI(ctx: GitHubCIContext, options: InstallCIOp
 
 	if (!fake && authMode === 'models-json' && repo) {
 		if (!ctx.ghAvailable) {
-			console.log(
-				'\n⚠ GitHub CLI (gh) is not available or not authenticated.',
-			);
+			console.log('\n⚠ GitHub CLI (gh) is not available or not authenticated.');
 			console.log('  You will need to set the following secrets manually.\n');
 		} else {
 			console.log('\n🔑 Setting API key secrets on GitHub...\n');

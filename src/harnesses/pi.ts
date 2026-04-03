@@ -58,7 +58,9 @@ export class PiHarness implements AgentHarness {
 				const providers = Object.keys(authData);
 				console.log(`Auth file found at ${authJsonPath} with providers: ${providers.join(', ')}`);
 				if (!authData[this.provider]) {
-					console.warn(`WARNING: Provider '${this.provider}' not found in auth.json (has: ${providers.join(', ')})`);
+					console.warn(
+						`WARNING: Provider '${this.provider}' not found in auth.json (has: ${providers.join(', ')})`,
+					);
 				}
 			} catch (e: any) {
 				console.warn(`WARNING: Could not parse auth.json: ${e.message}`);
@@ -81,7 +83,8 @@ export class PiHarness implements AgentHarness {
 		} catch (error: any) {
 			const stderr = error.stderr?.toString() || '';
 			const stdout = error.stdout?.toString() || '';
-			const details = [stderr, stdout].filter(Boolean).join('\n') || error.message || 'unknown error';
+			const details =
+				[stderr, stdout].filter(Boolean).join('\n') || error.message || 'unknown error';
 			throw new Error(
 				`Agent auth validation failed. Ensure valid credentials are configured.\n` +
 					`Set ANTHROPIC_API_KEY or configure OAuth via ~/.pi/agent/auth.json\n` +

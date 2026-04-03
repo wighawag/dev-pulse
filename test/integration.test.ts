@@ -72,10 +72,9 @@ Test task created by integration test mock agent.
 			);
 
 			await execAsync(`git add tasks/`, {cwd: options.workDir});
-			await execAsync(
-				`git commit -m "tasks(#${issueNumber}): generate implementation tasks"`,
-				{cwd: options.workDir},
-			);
+			await execAsync(`git commit -m "tasks(#${issueNumber}): generate implementation tasks"`, {
+				cwd: options.workDir,
+			});
 			return {output: 'Created task files', exitCode: 0};
 		}
 
@@ -95,7 +94,9 @@ describe.skipIf(!runIntegration)('Integration', () => {
 	beforeAll(async () => {
 		// Detect repo from source dir
 		const sourceDir = path.resolve(__dirname, '..');
-		const remoteUrl = (await execAsync('git remote get-url origin', {cwd: sourceDir})).stdout.trim();
+		const remoteUrl = (
+			await execAsync('git remote get-url origin', {cwd: sourceDir})
+		).stdout.trim();
 		const repoMatch = remoteUrl.match(/github\.com[:/](.+?)(?:\.git)?$/);
 		if (!repoMatch) throw new Error(`Could not parse repo from remote URL: ${remoteUrl}`);
 		repo = repoMatch[1];

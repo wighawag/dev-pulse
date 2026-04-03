@@ -461,7 +461,11 @@ describe('Orchestrator', () => {
 		});
 
 		it('auto-approves task PR when issue has auto-work label', async () => {
-			const issue = makeIssue({number: 51, title: 'Labeled auto', labels: [LABELS.TASKS_PROPOSED, LABELS.AUTO_WORK]});
+			const issue = makeIssue({
+				number: 51,
+				title: 'Labeled auto',
+				labels: [LABELS.TASKS_PROPOSED, LABELS.AUTO_WORK],
+			});
 
 			const issues = createMockIssueProvider({
 				listIssues: vi
@@ -566,7 +570,11 @@ describe('Orchestrator', () => {
 		});
 
 		it('auto-approve takes priority over implement', async () => {
-			const proposedIssue = makeIssue({number: 55, title: 'Proposed', labels: [LABELS.TASKS_PROPOSED]});
+			const proposedIssue = makeIssue({
+				number: 55,
+				title: 'Proposed',
+				labels: [LABELS.TASKS_PROPOSED],
+			});
 			const acceptedIssue = makeIssue({number: 56, title: 'Accepted'});
 
 			writeTaskFile(tmpDir, 56, 1, 'pending');

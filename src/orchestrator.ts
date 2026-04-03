@@ -75,13 +75,17 @@ export class Orchestrator {
 						console.log(`Would reconcile issue #${action.issue.number}: ${action.issue.title}`);
 						break;
 					case 'auto-approve':
-						console.log(`Would auto-approve task PR for issue #${action.issue.number}: ${action.issue.title}`);
+						console.log(
+							`Would auto-approve task PR for issue #${action.issue.number}: ${action.issue.title}`,
+						);
 						break;
 					case 'investigate':
 						console.log(`Would investigate issue #${action.issue.number}: ${action.issue.title}`);
 						break;
 					case 'implement':
-						console.log(`Would implement task ${action.task.id}: ${action.task.title} (issue #${action.issue.number})`);
+						console.log(
+							`Would implement task ${action.task.id}: ${action.task.title} (issue #${action.issue.number})`,
+						);
 						break;
 					case 'idle':
 						console.log('Nothing to do. All issues are either in-progress or completed.');
@@ -238,9 +242,10 @@ export class Orchestrator {
 			if (!existingPR) {
 				console.log(`Safety net: creating PR for ${branch} (missed during implement)`);
 				const issueTasks = this.tasks.listTasks(issue.number);
-				const taskSummary = issueTasks.length > 0
-					? issueTasks.map((t) => `- ✅ **${t.id}**: ${t.title}`).join('\n')
-					: '- All tasks completed';
+				const taskSummary =
+					issueTasks.length > 0
+						? issueTasks.map((t) => `- ✅ **${t.id}**: ${t.title}`).join('\n')
+						: '- All tasks completed';
 				const prUrl = await this.issues.createPR({
 					head: branch,
 					base: 'main',
@@ -450,7 +455,9 @@ export class Orchestrator {
 
 				// Verify the agent actually deleted the task file
 				if (this.tasks.taskFileExists(task.filePath)) {
-					console.error(`Agent exited successfully but did not delete task file '${task.filePath}'. Treating as incomplete.`);
+					console.error(
+						`Agent exited successfully but did not delete task file '${task.filePath}'. Treating as incomplete.`,
+					);
 					await this.git.checkoutMain();
 					return;
 				}
@@ -490,7 +497,9 @@ export class Orchestrator {
 
 					console.log(`PR created: ${prUrl}`);
 				} else {
-					console.log(`Task ${task.id} committed. ${remainingTasks.length} task(s) remaining for issue #${issue.number}.`);
+					console.log(
+						`Task ${task.id} committed. ${remainingTasks.length} task(s) remaining for issue #${issue.number}.`,
+					);
 				}
 			}
 		} catch (error) {
