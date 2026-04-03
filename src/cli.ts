@@ -10,6 +10,7 @@ import {GitHubProvider} from './providers/github.js';
 import {PiHarness} from './harnesses/pi.js';
 import {TaskManager} from './task-manager.js';
 import {handlePRComment, handleIssueComment, isPullRequest} from './comment.js';
+import type {AuthMode} from './providers/github-ci.js';
 import pkg from '../package.json' with {type: 'json'};
 
 const DEFAULT_AGENT_CMD = 'pi';
@@ -242,6 +243,32 @@ export function buildCli(): Command {
 			}
 
 			console.log('Reconcile complete.');
+		});
+
+	// --- install-ci ---
+	program
+		.command('install-ci')
+		.description('Set up GitHub Actions workflows for whitesmith CI')
+		.argument('[work_dir]', 'Working directory (target repository)', '.')
+		.option('--auth-json', 'Use pi auth.json instead of models.json (requires PI_AUTH_JSON and GH_PAT secrets)')
+		.option('--repo <owner/repo>', 'GitHub repo (auto-detected if omitted)')
+		.option('--fake', 'Write workflows to .fake/workflows/ instead of .github/workflows/ (for testing)')
+		.action(async (workDir: string, opts) => {
+			const resolvedDir = path.resolve(workDir);
+			if (!fs.existsSync(resolvedDir)) {
+				console.error(`ERROR: Directory '${resolvedDir}' does not exist`);
+				process.exit(1);
+			}
+
+			const authMode: AuthMode = opts.authJson ? 'auth-json' : 'models-json';
+
+			try {
+				const provider = new GitHubProvider(resolvedDir, opts.repo);
+				await provider.installCI({authMode, fake: opts.fake ?? false});
+			} catch (error) {
+				console.error('ERROR:', error instanceof Error ? error.message : error);
+				process.exit(1);
+			}
 		});
 
 	return program;

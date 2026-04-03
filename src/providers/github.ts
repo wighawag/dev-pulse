@@ -1,7 +1,8 @@
-import {exec} from 'node:child_process';
+import {exec, execSync} from 'node:child_process';
 import {promisify} from 'node:util';
 import type {IssueProvider} from './issue-provider.js';
 import type {Issue} from '../types.js';
+import {installGitHubCI, type InstallCIOptions, type AuthMode} from './github-ci.js';
 
 const execAsync = promisify(exec);
 
@@ -237,6 +238,53 @@ export class GitHubProvider implements IssueProvider {
 			} catch {
 				// Label might already exist
 			}
+		}
+	}
+
+	// ─── CI Installation ────────────────────────────────────────────────
+
+	async installCI(options: InstallCIOptions): Promise<void> {
+		const repo = this.repo || this.detectRepo();
+		const ghAvailable = this.ghIsAvailable();
+
+		await installGitHubCI(
+			{
+				workDir: this.workDir,
+				repo,
+				ghAvailable,
+				setSecret: async (name: string, value: string) => {
+					const targetRepo = this.repo || repo;
+					if (!targetRepo) throw new Error('No repo configured');
+					execSync(`gh secret set ${name} --repo "${targetRepo}"`, {
+						input: value,
+						stdio: ['pipe', 'pipe', 'pipe'],
+					});
+				},
+			},
+			options,
+		);
+	}
+
+	private detectRepo(): string | undefined {
+		try {
+			const url = execSync('gh repo view --json nameWithOwner -q .nameWithOwner', {
+				cwd: this.workDir,
+				stdio: ['pipe', 'pipe', 'pipe'],
+			})
+				.toString()
+				.trim();
+			return url || undefined;
+		} catch {
+			return undefined;
+		}
+	}
+
+	private ghIsAvailable(): boolean {
+		try {
+			execSync('gh auth status', {stdio: ['pipe', 'pipe', 'pipe']});
+			return true;
+		} catch {
+			return false;
 		}
 	}
 }

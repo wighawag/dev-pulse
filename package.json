@@ -20,6 +20,7 @@
 	],
 	"packageManager": "pnpm@10.28.1",
 	"dependencies": {
+		"@inquirer/prompts": "^8.3.2",
 		"commander": "^14.0.3",
 		"simple-git": "^3.33.0",
 		"yaml": "^2.7.1"
