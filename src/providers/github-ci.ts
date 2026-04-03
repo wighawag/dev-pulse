@@ -683,7 +683,9 @@ jobs:
 `;
 }
 
-function generateReconcileWorkflow(): string {
+function generateReconcileWorkflow(config: CIConfig): string {
+	const envBlock = generateTopLevelEnv(config);
+
 	return `\
 name: whitesmith-reconcile
 
@@ -693,17 +695,64 @@ on:
     branches: [main]
 
 env:
-  GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+${envBlock}
 
 permissions:
-  contents: read
+  contents: write
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 jobs:
-  reconcile:
+  parse:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
+    outputs:
+      issue_number: \${{ steps.parse.outputs.issue_number }}
+      branch_type: \${{ steps.parse.outputs.branch_type }}
+    steps:
+      - id: parse
+        run: |
+          BRANCH="\${{ github.event.pull_request.head.ref }}"
+          INVESTIGATE_NUM=$(echo "$BRANCH" | sed -n 's|^investigate/\\([0-9]*\\)$|\\1|p')
+          ISSUE_NUM=$(echo "$BRANCH" | sed -n 's|^issue/\\([0-9]*\\)$|\\1|p')
+          if [ -n "$INVESTIGATE_NUM" ]; then
+            echo "issue_number=$INVESTIGATE_NUM" >> "$GITHUB_OUTPUT"
+            echo "branch_type=investigate" >> "$GITHUB_OUTPUT"
+          elif [ -n "$ISSUE_NUM" ]; then
+            echo "issue_number=$ISSUE_NUM" >> "$GITHUB_OUTPUT"
+            echo "branch_type=issue" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch_type=other" >> "$GITHUB_OUTPUT"
+          fi
+
+  implement:
+    needs: parse
+    if: needs.parse.outputs.branch_type == 'investigate'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: whitesmith-issue-\${{ needs.parse.outputs.issue_number }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-whitesmith
+
+      - run: |
+          whitesmith run . \\
+            --issue "\${{ needs.parse.outputs.issue_number }}" \\
+            --provider "$WHITESMITH_PROVIDER" \\
+            --model "$WHITESMITH_MODEL" \\
+            --max-iterations 10
+
+  reconcile:
+    needs: parse
+    if: needs.parse.outputs.branch_type != 'investigate'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: \${{ (needs.parse.outputs.issue_number && format('whitesmith-issue-{0}', needs.parse.outputs.issue_number)) || 'whitesmith-reconcile-other' }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 
@@ -1014,7 +1063,7 @@ export async function installGitHubCI(
 		},
 		{
 			path: path.join(workflowsDir, 'whitesmith-reconcile.yml'),
-			content: generateReconcileWorkflow(),
+			content: generateReconcileWorkflow(config),
 		},
 	];
 
