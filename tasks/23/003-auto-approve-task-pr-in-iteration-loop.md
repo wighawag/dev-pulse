@@ -54,11 +54,11 @@ After this, the next iteration will naturally find the tasks on `main` and pick 
   Priority 4: Investigate
   ```
 - The `auto-approve` handler should:
-  1. Find the PR for `investigate/<issue.number>` using `getPRForBranch()`
-  2. If PR exists and is open, call `mergePR(pr.number)` (note: need PR number, may need to extend `getPRForBranch` return type or use `listPRsByBranchPrefix`)
-  3. Wait briefly for merge to propagate (or just let the next iteration's `git fetch` handle it)
-  4. Transition labels: remove `tasks-proposed`, add `tasks-accepted`
-  5. Comment on the issue
-- The `reconcile` command in `cli.ts` already handles `tasks-proposed` → `tasks-accepted` by checking if tasks exist on `main`. After merge, on the next `git fetch` + checkout main, tasks will be on main. The reconcile command could also be enhanced to handle this, but the orchestrator approach is cleaner.
-- After merging, do `git fetch` + `git checkoutMain()` to get the merged tasks before continuing. Or simply return from the iteration and let the next iteration's fetch pick them up.
-- Look at `getPRForBranch()` — it currently returns `{state, url}` but not `number`. You may need to extend it to also return the PR number, or use `listPRsByBranchPrefix('investigate/')` which already returns `number`.
+  1. Find the PR for `investigate/<issue.number>` using `getPRForBranch()` (which now returns `number` thanks to task 002)
+  2. If PR exists and is open, call `mergePR(pr.number)`
+  3. Transition labels: remove `tasks-proposed`, add `tasks-accepted`
+  4. Comment on the issue
+  5. **Return from the iteration** — do NOT continue to implement in the same iteration
+- **Important: Return after auto-approve.** After merging, the iteration must return and let the next iteration's `git fetch` + `checkoutMain()` pick up the merged tasks on `main`. Do not attempt to implement in the same iteration — the local checkout would have stale state.
+- `getPRForBranch()` now returns `{state, url, number}` (extended in task 002), so the PR number is directly available.
+- No separate `approvePR` step — just merge directly. This is simpler and sufficient for repos without required review branch protection.
