@@ -118,6 +118,24 @@ jobs:
         if: steps.npm-cache.outputs.cache-hit != 'true'
         run: npm install -g @mariozechner/pi-coding-agent
 
+      # Workaround for https://github.com/badlogic/pi-mono/issues/2743
+      # Anthropic's OAuth token endpoint now requires application/x-www-form-urlencoded
+      # but pi-ai sends application/json, causing HTTP 400 on token refresh.
+      - name: Patch pi OAuth token refresh
+        run: |
+          PI_AI_OAUTH=$(find $(npm prefix -g)/lib/node_modules/@mariozechner/pi-coding-agent -path '*/pi-ai/dist/utils/oauth/anthropic.js' 2>/dev/null | head -1)
+          if [ -z "$PI_AI_OAUTH" ]; then
+            echo "WARNING: Could not find pi-ai anthropic.js to patch"
+          else
+            echo "Patching $PI_AI_OAUTH"
+            sed -i 's/async function postJson(url, body) {/async function postForm(url, body) {/' "$PI_AI_OAUTH"
+            sed -i 's/"Content-Type": "application\/json",/"Content-Type": "application\/x-www-form-urlencoded",/' "$PI_AI_OAUTH"
+            sed -i 's/body: JSON.stringify(body),/body: new URLSearchParams(body).toString(),/' "$PI_AI_OAUTH"
+            sed -i 's/await postJson(TOKEN_URL,/await postForm(TOKEN_URL,/g' "$PI_AI_OAUTH"
+            echo "Patch applied successfully"
+            grep -n 'postForm\|x-www-form-urlencoded\|URLSearchParams' "$PI_AI_OAUTH"
+          fi
+
       - name: Configure pi auth
         env:
           PI_AUTH_JSON: ${{ secrets.PI_AUTH_JSON }}
