@@ -56,6 +56,8 @@ export const LABELS = {
 	TASKS_ACCEPTED: 'whitesmith:tasks-accepted',
 	/** All tasks for this issue have been completed */
 	COMPLETED: 'whitesmith:completed',
+	/** Auto-work mode: auto-approve task PRs */
+	AUTO_WORK: 'whitesmith:auto-work',
 } as const;
 
 /**
@@ -78,6 +80,8 @@ export interface DevPulseConfig {
 	noSleep: boolean;
 	/** Print what would be done without executing it */
 	dryRun: boolean;
+	/** Enable auto-work mode (auto-approve task PRs) */
+	autoWork: boolean;
 	/** Log file path */
 	logFile?: string;
 	/** GitHub repo in "owner/repo" format (auto-detected if not set) */
@@ -89,6 +93,7 @@ export interface DevPulseConfig {
  */
 export type Action =
 	| {type: 'reconcile'; issue: Issue}
+	| {type: 'auto-approve'; issue: Issue}
 	| {type: 'investigate'; issue: Issue}
 	| {type: 'implement'; task: Task; issue: Issue}
 	| {type: 'idle'};
