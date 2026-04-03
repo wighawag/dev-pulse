@@ -1,7 +1,15 @@
 export {Orchestrator} from './orchestrator.js';
 export {TaskManager} from './task-manager.js';
 export {GitManager} from './git.js';
-export {buildInvestigatePrompt, buildImplementPrompt} from './prompts.js';
+export {
+	buildInvestigatePrompt,
+	buildImplementPrompt,
+	buildReviewTaskProposalPrompt,
+	buildReviewImplementationPRPrompt,
+	buildReviewTaskCompletionPrompt,
+} from './prompts.js';
+export {performReview, detectReviewTarget} from './review.js';
+export type {ReviewConfig, ReviewTarget} from './review.js';
 
 export type {IssueProvider} from './providers/issue-provider.js';
 export {GitHubProvider} from './providers/github.js';

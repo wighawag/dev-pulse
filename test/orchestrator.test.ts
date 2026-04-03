@@ -55,6 +55,7 @@ function createConfig(workDir: string, overrides: Partial<DevPulseConfig> = {}):
 		workDir,
 		noPush: true,
 		noSleep: true,
+		review: false,
 		...overrides,
 	};
 }
@@ -92,6 +93,12 @@ Test task.
 const mockRemoteFileExists = vi.fn().mockResolvedValue(true);
 const mockRemotePathHasFiles = vi.fn().mockResolvedValue(true);
 
+const mockPerformReview = vi.fn().mockResolvedValue('Review looks good.');
+
+vi.mock('../src/review.js', () => ({
+	performReview: (...args: unknown[]) => mockPerformReview(...args),
+}));
+
 vi.mock('../src/git.js', () => {
 	class MockGitManager {
 		fetch = vi.fn().mockResolvedValue(undefined);
@@ -120,6 +127,7 @@ describe('Orchestrator', () => {
 		// Reset shared git mocks to defaults
 		mockRemoteFileExists.mockReset().mockResolvedValue(true);
 		mockRemotePathHasFiles.mockReset().mockResolvedValue(true);
+		mockPerformReview.mockReset().mockResolvedValue('Review looks good.');
 	});
 
 	afterEach(() => {
@@ -669,6 +677,201 @@ describe('Orchestrator', () => {
 					prompt: expect.stringContaining('1-001'),
 				}),
 			);
+		});
+	});
+
+	describe('review step', () => {
+		it('triggers task proposal review after investigate when review is enabled', async () => {
+			const issue = makeIssue({number: 70, title: 'Review me'});
+
+			const issues = createMockIssueProvider({
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [];
+						if (opts?.noLabels) return [issue];
+						return [];
+					}),
+			});
+
+			const agent = createMockAgent({
+				run: vi.fn().mockImplementation(async () => {
+					writeTaskFile(tmpDir, 70, 1, 'the-task');
+					return {output: 'done', exitCode: 0};
+				}),
+			});
+
+			const config = createConfig(tmpDir, {noPush: false, review: true});
+			const orch = new Orchestrator(config, issues, agent);
+			await orch.run();
+
+			// PR should be created
+			expect(issues.createPR).toHaveBeenCalled();
+			// Review should be triggered
+			expect(mockPerformReview).toHaveBeenCalledWith(
+				{type: 'issue-tasks', issueNumber: 70},
+				expect.objectContaining({workDir: tmpDir, post: true}),
+				issues,
+				agent,
+			);
+		});
+
+		it('does not trigger review after investigate when review is disabled', async () => {
+			const issue = makeIssue({number: 71, title: 'No review'});
+
+			const issues = createMockIssueProvider({
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [];
+						if (opts?.noLabels) return [issue];
+						return [];
+					}),
+			});
+
+			const agent = createMockAgent({
+				run: vi.fn().mockImplementation(async () => {
+					writeTaskFile(tmpDir, 71, 1, 'the-task');
+					return {output: 'done', exitCode: 0};
+				}),
+			});
+
+			const config = createConfig(tmpDir, {noPush: false, review: false});
+			const orch = new Orchestrator(config, issues, agent);
+			await orch.run();
+
+			expect(issues.createPR).toHaveBeenCalled();
+			expect(mockPerformReview).not.toHaveBeenCalled();
+		});
+
+		it('does not trigger review after investigate in noPush mode', async () => {
+			const issue = makeIssue({number: 72, title: 'No push'});
+
+			const issues = createMockIssueProvider({
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [];
+						if (opts?.noLabels) return [issue];
+						return [];
+					}),
+			});
+
+			const agent = createMockAgent({
+				run: vi.fn().mockImplementation(async () => {
+					writeTaskFile(tmpDir, 72, 1, 'the-task');
+					return {output: 'done', exitCode: 0};
+				}),
+			});
+
+			const config = createConfig(tmpDir, {noPush: true, review: true});
+			const orch = new Orchestrator(config, issues, agent);
+			await orch.run();
+
+			// No PR, no review
+			expect(issues.createPR).not.toHaveBeenCalled();
+			expect(mockPerformReview).not.toHaveBeenCalled();
+		});
+
+		it('triggers implementation review after last task completes when review is enabled', async () => {
+			const issue = makeIssue({number: 73, title: 'Impl review'});
+			writeTaskFile(tmpDir, 73, 1, 'only-task');
+
+			const issues = createMockIssueProvider({
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [issue];
+						return [];
+					}),
+			});
+
+			// Agent deletes the task file (completes it)
+			const agent = createMockAgent({
+				run: vi.fn().mockImplementation(async () => {
+					const taskDir = path.join(tmpDir, 'tasks', '73');
+					fs.rmSync(taskDir, {recursive: true, force: true});
+					return {output: 'done', exitCode: 0};
+				}),
+			});
+
+			const config = createConfig(tmpDir, {noPush: false, review: true});
+			const orch = new Orchestrator(config, issues, agent);
+			await orch.run();
+
+			// PR should be created
+			expect(issues.createPR).toHaveBeenCalled();
+			// Review should be triggered for completion
+			expect(mockPerformReview).toHaveBeenCalledWith(
+				{type: 'issue-tasks-completed', issueNumber: 73},
+				expect.objectContaining({workDir: tmpDir, post: true}),
+				issues,
+				agent,
+			);
+		});
+
+		it('does not trigger implementation review when tasks remain', async () => {
+			const issue = makeIssue({number: 74, title: 'Multi-task'});
+			writeTaskFile(tmpDir, 74, 1, 'first');
+			writeTaskFile(tmpDir, 74, 2, 'second');
+
+			const issues = createMockIssueProvider({
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [issue];
+						return [];
+					}),
+			});
+
+			// Agent deletes only the first task
+			const agent = createMockAgent({
+				run: vi.fn().mockImplementation(async () => {
+					const taskFile = path.join(tmpDir, 'tasks', '74', '001-first.md');
+					fs.unlinkSync(taskFile);
+					return {output: 'done', exitCode: 0};
+				}),
+			});
+
+			const config = createConfig(tmpDir, {noPush: false, review: true});
+			const orch = new Orchestrator(config, issues, agent);
+			await orch.run();
+
+			// No PR, no review (tasks remain)
+			expect(issues.createPR).not.toHaveBeenCalled();
+			expect(mockPerformReview).not.toHaveBeenCalled();
+		});
+
+		it('continues gracefully when review fails', async () => {
+			const issue = makeIssue({number: 75, title: 'Review fails'});
+
+			const issues = createMockIssueProvider({
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [];
+						if (opts?.noLabels) return [issue];
+						return [];
+					}),
+			});
+
+			const agent = createMockAgent({
+				run: vi.fn().mockImplementation(async () => {
+					writeTaskFile(tmpDir, 75, 1, 'the-task');
+					return {output: 'done', exitCode: 0};
+				}),
+			});
+
+			mockPerformReview.mockRejectedValue(new Error('Agent crashed'));
+
+			const config = createConfig(tmpDir, {noPush: false, review: true});
+			const orch = new Orchestrator(config, issues, agent);
+
+			// Should not throw
+			await expect(orch.run()).resolves.toBeUndefined();
+
+			// PR was still created before review failed
+			expect(issues.createPR).toHaveBeenCalled();
 		});
 	});
 

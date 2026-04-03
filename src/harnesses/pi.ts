@@ -60,7 +60,9 @@ export class PiHarness implements AgentHarness {
 			try {
 				const modelsData = JSON.parse(fs.readFileSync(modelsJsonPath, 'utf-8'));
 				const providers = Object.keys(modelsData.providers || {});
-				console.log(`Models config found at ${modelsJsonPath} with providers: ${providers.join(', ')}`);
+				console.log(
+					`Models config found at ${modelsJsonPath} with providers: ${providers.join(', ')}`,
+				);
 				if (!modelsData.providers?.[this.provider]) {
 					console.warn(
 						`WARNING: Provider '${this.provider}' not found in models.json (has: ${providers.join(', ')})`,
@@ -83,7 +85,9 @@ export class PiHarness implements AgentHarness {
 				console.warn(`WARNING: Could not parse auth.json: ${e.message}`);
 			}
 		} else {
-			console.warn(`WARNING: No auth configuration found (checked ${modelsJsonPath} and ${authJsonPath})`);
+			console.warn(
+				`WARNING: No auth configuration found (checked ${modelsJsonPath} and ${authJsonPath})`,
+			);
 		}
 
 		// Validate auth by making a minimal API call

@@ -37,6 +37,10 @@ interface CIConfig {
 	defaultModel: string;
 	/** When true, install whitesmith from source (pnpm i + pnpm link --global) instead of npm. */
 	dev: boolean;
+	/** When true, generate the review workflow. */
+	reviewWorkflow: boolean;
+	/** When true, the review step is enabled in the main loop (whitesmith PRs are already reviewed inline). */
+	reviewStepEnabled: boolean;
 }
 
 /**
@@ -543,6 +547,101 @@ jobs:
 `;
 }
 
+function generateReviewWorkflow(config: CIConfig): string {
+	const envBlock = generateTopLevelEnv(config);
+
+	// When the review step is enabled in the main loop, whitesmith PRs are
+	// already reviewed inline. The workflow should only review non-whitesmith PRs.
+	// When the review step is disabled, the workflow reviews ALL PRs.
+	const skipWhitesmithCheck = config.reviewStepEnabled
+		? `\
+  check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: \${{ steps.check.outputs.should_run }}
+    steps:
+      - id: check
+        run: |
+          BRANCH="\${{ github.event.pull_request.head.ref }}"
+          if echo "$BRANCH" | grep -qE '^(investigate|issue)/'; then
+            echo "Skipping review for whitesmith-managed branch: $BRANCH"
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  review:
+    needs: check
+    if: >-
+      (github.event_name == 'workflow_dispatch') ||
+      (needs.check.outputs.should_run == 'true')`
+		: `\
+  review:`;
+
+	return `\
+name: whitesmith-review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+    inputs:
+      number:
+        description: 'PR or issue number to review'
+        required: true
+      type:
+        description: 'Review type (auto-detected if empty): pr, issue-tasks, issue-tasks-completed'
+      provider:
+        description: 'AI provider (overrides WHITESMITH_PROVIDER)'
+      model:
+        description: 'AI model (overrides WHITESMITH_MODEL)'
+
+env:
+${envBlock}
+
+concurrency:
+  group: whitesmith-review-\${{ github.event.pull_request.number || inputs.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+${skipWhitesmithCheck}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-whitesmith
+
+      - if: github.event_name == 'pull_request'
+        run: |
+          whitesmith review . \\
+            --number "\${{ github.event.pull_request.number }}" \\
+            --provider "\${{ env.WHITESMITH_PROVIDER }}" \\
+            --model "\${{ env.WHITESMITH_MODEL }}" \\
+            --post
+
+      - if: github.event_name == 'workflow_dispatch'
+        run: |
+          TYPE_FLAG=""
+          if [ -n "\${{ inputs.type }}" ]; then
+            TYPE_FLAG="--type \${{ inputs.type }}"
+          fi
+          whitesmith review . \\
+            --number "\${{ inputs.number }}" \\
+            \$TYPE_FLAG \\
+            --provider "\${{ inputs.provider || env.WHITESMITH_PROVIDER }}" \\
+            --model "\${{ inputs.model || env.WHITESMITH_MODEL }}" \\
+            --post
+`;
+}
+
 function generateReconcileWorkflow(): string {
 	return `\
 name: whitesmith-reconcile
@@ -683,6 +782,10 @@ export interface InstallCIOptions {
 	includeSecrets?: boolean;
 	/** Build whitesmith from source (pnpm i + link --global) instead of installing from npm. Auto-detected when inside the whitesmith repo. */
 	dev?: boolean;
+	/** Generate the review workflow for PR reviews. Off by default. */
+	reviewWorkflow?: boolean;
+	/** Whether the review step is enabled in the main loop (affects review workflow filtering). */
+	reviewStepEnabled?: boolean;
 }
 
 /**
@@ -798,12 +901,17 @@ export async function installGitHubCI(
 		}
 	}
 
+	const reviewWorkflow = options.reviewWorkflow ?? false;
+	const reviewStepEnabled = options.reviewStepEnabled ?? true;
+
 	const config: CIConfig = {
 		authMode,
 		providers,
 		defaultProvider,
 		defaultModel,
 		dev,
+		reviewWorkflow,
+		reviewStepEnabled,
 	};
 
 	// ── Set GitHub secrets via gh CLI ─────────────────────────────────────
@@ -858,6 +966,13 @@ export async function installGitHubCI(
 			content: generateReconcileWorkflow(),
 		},
 	];
+
+	if (config.reviewWorkflow) {
+		files.push({
+			path: path.join(workflowsDir, 'whitesmith-review.yml'),
+			content: generateReviewWorkflow(config),
+		});
+	}
 
 	if (authMode === 'auth-json') {
 		const scriptsDir = path.join(baseDir, 'scripts');

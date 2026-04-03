@@ -68,6 +68,209 @@ Do NOT push. Do NOT create a PR. The orchestrator will handle that.
 `;
 }
 
+// ─── Review Prompts ──────────────────────────────────────────────────────────
+
+export interface ReviewTaskProposalArgs {
+	issueNumber: number;
+	issueTitle: string;
+	issueBody: string;
+	issueUrl: string;
+	tasks: Array<{id: string; title: string; content: string; filePath: string}>;
+	taskPRUrl?: string;
+	responseFile: string;
+}
+
+/**
+ * Build the prompt for reviewing a task proposal.
+ * Ensures proposed tasks are detailed, precise, and properly cover the issue.
+ */
+export function buildReviewTaskProposalPrompt(args: ReviewTaskProposalArgs): string {
+	const taskList = args.tasks
+		.map((t) => `### Task ${t.id}: ${t.title}\n\n**File:** \`${t.filePath}\`\n\n${t.content}`)
+		.join('\n\n---\n\n');
+
+	return `# Review: Task Proposal for Issue #${args.issueNumber}
+
+## Issue
+**Title:** ${args.issueTitle}
+**URL:** ${args.issueUrl}
+
+### Description
+${args.issueBody}
+${args.taskPRUrl ? `\n**Task PR:** ${args.taskPRUrl}\n` : ''}
+## Proposed Tasks
+
+${taskList || '_No task files found._'}
+
+## Your Job
+
+You are reviewing the proposed task breakdown for the issue above. Your goal is to ensure
+the tasks are **detailed enough**, **precise**, and **complete** so that another AI agent
+can implement them without ambiguity.
+
+### Review Criteria
+
+1. **Coverage**: Do the tasks fully address the issue? Are there missing aspects?
+2. **Clarity**: Is each task description clear and unambiguous? Could an AI agent implement it without asking questions?
+3. **Granularity**: Are tasks the right size? Not too large (hard to review) or too small (unnecessary overhead).
+4. **Acceptance Criteria**: Does each task have clear, verifiable acceptance criteria?
+5. **Dependencies**: Are task dependencies correct? Could any tasks be parallelized?
+6. **Implementation Notes**: Are there enough hints about which files/modules to modify?
+7. **Consistency**: Do the tasks follow the existing codebase patterns and conventions?
+
+### Instructions
+
+1. **Explore the codebase** to understand the architecture and verify the tasks make sense.
+2. **Read each task file** carefully.
+3. **Write your review** to \`${args.responseFile}\`.
+
+Your review should be structured as:
+- An overall assessment (approve / request changes)
+- Per-task feedback (if any issues found)
+- Suggestions for improvement
+- Any missing tasks or concerns
+
+Use markdown formatting. Be constructive and specific.
+
+Do NOT modify any files other than \`${args.responseFile}\`.
+Do NOT commit, push, or create PRs.
+`;
+}
+
+export interface ReviewImplementationPRArgs {
+	prNumber: number;
+	prTitle: string;
+	prBody: string;
+	prBranch: string;
+	prUrl: string;
+	parentIssue?: {
+		number: number;
+		title: string;
+		body: string;
+		url: string;
+	};
+	responseFile: string;
+}
+
+/**
+ * Build the prompt for reviewing an implementation PR.
+ * Performs a detailed code review looking for bugs, quality issues, etc.
+ */
+export function buildReviewImplementationPRPrompt(args: ReviewImplementationPRArgs): string {
+	const issueContext = args.parentIssue
+		? `\n## Parent Issue\n**#${args.parentIssue.number}:** ${args.parentIssue.title}\n**URL:** ${args.parentIssue.url}\n\n### Issue Description\n${args.parentIssue.body}\n`
+		: '';
+
+	return `# Review: Pull Request #${args.prNumber}
+
+## Pull Request
+**Title:** ${args.prTitle}
+**URL:** ${args.prUrl}
+**Branch:** ${args.prBranch}
+
+### PR Description
+${args.prBody}
+${issueContext}
+## Your Job
+
+You are performing a detailed code review of this pull request. You are on the PR branch
+(\`${args.prBranch}\`) and have full access to the codebase.
+
+### Review Criteria
+
+1. **Correctness**: Does the code work as intended? Are there any bugs or logic errors?
+2. **Edge Cases**: Are edge cases handled? Could inputs cause crashes or unexpected behavior?
+3. **Security**: Are there any security concerns (injection, data leaks, etc.)?
+4. **Performance**: Are there any performance issues or inefficiencies?
+5. **Code Quality**: Is the code clean, readable, and well-structured?
+6. **Conventions**: Does it follow the existing codebase patterns and style?
+7. **Tests**: Are there adequate tests? Are existing tests still passing?
+8. **Error Handling**: Are errors handled gracefully?
+9. **Documentation**: Are changes documented where needed?
+10. **Completeness**: Does it fully address the issue/task requirements?
+
+### Instructions
+
+1. **Examine the diff** by running \`git diff main...HEAD\` to see all changes.
+2. **Explore the codebase** to understand how the changes fit in.
+3. **Read the changed files** in full context.
+4. **Write your review** to \`${args.responseFile}\`.
+
+Your review should include:
+- An overall assessment (approve / request changes)
+- Specific issues found (with file paths and line references)
+- Suggestions for improvement
+- Any potential bugs or concerns
+
+Use markdown formatting. Be thorough but constructive.
+
+Do NOT modify any files other than \`${args.responseFile}\`.
+Do NOT commit, push, or create PRs.
+`;
+}
+
+export interface ReviewTaskCompletionArgs {
+	issueNumber: number;
+	issueTitle: string;
+	issueBody: string;
+	issueUrl: string;
+	implPRUrl?: string;
+	implBranch: string;
+	responseFile: string;
+}
+
+/**
+ * Build the prompt for reviewing completed tasks.
+ * Ensures the tasks were followed properly and checks for bugs or potential issues.
+ */
+export function buildReviewTaskCompletionPrompt(args: ReviewTaskCompletionArgs): string {
+	return `# Review: Task Completion for Issue #${args.issueNumber}
+
+## Issue
+**Title:** ${args.issueTitle}
+**URL:** ${args.issueUrl}
+${args.implPRUrl ? `**Implementation PR:** ${args.implPRUrl}\n` : ''}
+### Issue Description
+${args.issueBody}
+
+## Your Job
+
+You are reviewing the completed implementation for this issue. All tasks have been
+implemented on the \`${args.implBranch}\` branch (you are currently on it).
+
+### Review Criteria
+
+1. **Task Adherence**: Were the original tasks followed? Check the git log for task commits.
+2. **Completeness**: Is the issue fully addressed? Are there any missing pieces?
+3. **Bugs**: Are there any bugs or logic errors in the implementation?
+4. **Edge Cases**: Are edge cases handled properly?
+5. **Regressions**: Could any changes break existing functionality?
+6. **Code Quality**: Is the code clean, well-structured, and following conventions?
+7. **Tests**: Are there adequate tests for the new functionality?
+8. **Security**: Any security concerns?
+9. **Performance**: Any performance issues?
+
+### Instructions
+
+1. **Examine the full diff** by running \`git diff main...HEAD\` to see all changes.
+2. **Check the git log** with \`git log main..HEAD --oneline\` to see all task commits.
+3. **Read the original task files** on main with \`git show main:tasks/${args.issueNumber}/\` (if they exist).
+4. **Explore the changed code** in full context.
+5. **Write your review** to \`${args.responseFile}\`.
+
+Your review should include:
+- An overall assessment (approve / request changes)
+- Whether each task was properly completed
+- Any bugs, issues, or concerns found
+- Suggestions for improvement
+
+Use markdown formatting. Be thorough but constructive.
+
+Do NOT modify any files other than \`${args.responseFile}\`.
+Do NOT commit, push, or create PRs.
+`;
+}
+
 /**
  * Build the prompt for the "implement" phase.
  * The agent implements a specific task and deletes the task file.

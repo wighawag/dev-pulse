@@ -10,6 +10,7 @@ import {GitHubProvider} from './providers/github.js';
 import {PiHarness} from './harnesses/pi.js';
 import {TaskManager} from './task-manager.js';
 import {handlePRComment, handleIssueComment, isPullRequest} from './comment.js';
+import {performReview, detectReviewTarget} from './review.js';
 import type {AuthMode} from './providers/github-ci.js';
 import pkg from '../package.json' with {type: 'json'};
 
@@ -49,6 +50,7 @@ export function buildCli(): Command {
 		.option('--no-sleep', 'Skip sleep between iterations')
 		.option('--dry-run', 'Print what would be done without executing it')
 		.option('--auto-work', 'Enable auto-work mode (auto-approve task PRs)')
+		.option('--no-review', 'Disable review step after PRs are created')
 		.action(async (workDir: string, opts) => {
 			const config: DevPulseConfig = {
 				agentCmd: opts.agentCmd,
@@ -60,6 +62,7 @@ export function buildCli(): Command {
 				noSleep: opts.sleep === false,
 				dryRun: opts.dryRun ?? false,
 				autoWork: opts.autoWork ?? false,
+				review: opts.review !== false,
 				logFile: opts.logFile,
 				repo: opts.repo,
 			};
@@ -248,6 +251,85 @@ export function buildCli(): Command {
 			console.log('Reconcile complete.');
 		});
 
+	// --- review ---
+	program
+		.command('review')
+		.description('Review a PR, task proposal, or completed tasks')
+		.argument('[work_dir]', 'Working directory', '.')
+		.requiredOption('--number <n>', 'PR or issue number to review')
+		.option(
+			'--type <type>',
+			'Review type: pr, issue-tasks, issue-tasks-completed (auto-detected if omitted)',
+		)
+		.option('--agent-cmd <cmd>', 'Agent harness command', DEFAULT_AGENT_CMD)
+		.requiredOption('--provider <name>', 'AI provider (e.g. anthropic, openai)')
+		.requiredOption('--model <id>', 'AI model ID (e.g. claude-opus-4-6)')
+		.option('--repo <owner/repo>', 'GitHub repo (auto-detected if omitted)')
+		.option('--log-file <path>', 'Log agent output to file')
+		.option('--post', 'Post the review as a GitHub comment (otherwise prints to stdout)')
+		.action(async (workDir: string, opts) => {
+			const resolvedDir = path.resolve(workDir);
+			if (!fs.existsSync(resolvedDir)) {
+				console.error(`ERROR: Directory '${resolvedDir}' does not exist`);
+				process.exit(1);
+			}
+
+			process.chdir(resolvedDir);
+
+			const issues = new GitHubProvider(resolvedDir, opts.repo);
+			const agent = new PiHarness({
+				cmd: opts.agentCmd,
+				provider: opts.provider,
+				model: opts.model,
+			});
+
+			await agent.validate();
+
+			const number = parseInt(opts.number, 10);
+
+			try {
+				let target;
+				if (opts.type) {
+					// Explicit type provided
+					switch (opts.type) {
+						case 'pr':
+							target = {type: 'pr' as const, number};
+							break;
+						case 'issue-tasks':
+							target = {type: 'issue-tasks' as const, issueNumber: number};
+							break;
+						case 'issue-tasks-completed':
+							target = {type: 'issue-tasks-completed' as const, issueNumber: number};
+							break;
+						default:
+							console.error(
+								`ERROR: Unknown review type '${opts.type}'. Use: pr, issue-tasks, issue-tasks-completed`,
+							);
+							process.exit(1);
+					}
+				} else {
+					// Auto-detect
+					target = await detectReviewTarget(number, issues);
+					console.log(`Auto-detected review type: ${target.type}`);
+				}
+
+				await performReview(
+					target,
+					{
+						workDir: resolvedDir,
+						repo: opts.repo,
+						logFile: opts.logFile,
+						post: opts.post === true,
+					},
+					issues,
+					agent,
+				);
+			} catch (error) {
+				console.error('ERROR:', error instanceof Error ? error.message : error);
+				process.exit(1);
+			}
+		});
+
 	// --- install-ci ---
 	program
 		.command('install-ci')
@@ -260,9 +342,20 @@ export function buildCli(): Command {
 		.option('--repo <owner/repo>', 'GitHub repo (auto-detected if omitted)')
 		.option('--fake', 'Write workflows to .fake/ instead of .github/ (for testing/comparison)')
 		.option('--config <path>', 'Load provider config from a JSON file (skip interactive prompts)')
-		.option('--export-config <path>', 'Write the provider config as JSON to a file instead of generating workflows')
-		.option('--include-secrets', 'With --export-config, prompt for API keys and include them in the JSON output')
+		.option(
+			'--export-config <path>',
+			'Write the provider config as JSON to a file instead of generating workflows',
+		)
+		.option(
+			'--include-secrets',
+			'With --export-config, prompt for API keys and include them in the JSON output',
+		)
 		.option('--dev', 'Build whitesmith from source (pnpm i + link --global) instead of npm install')
+		.option('--review-workflow', 'Generate a GitHub Actions workflow for PR reviews')
+		.option(
+			'--no-review-step',
+			'Indicate the review step is disabled in the main loop (review workflow will cover all PRs)',
+		)
 		.action(async (workDir: string, opts) => {
 			const resolvedDir = path.resolve(workDir);
 			if (!fs.existsSync(resolvedDir)) {
@@ -281,6 +374,8 @@ export function buildCli(): Command {
 					exportConfig: opts.exportConfig,
 					includeSecrets: opts.includeSecrets ?? false,
 					dev: opts.dev,
+					reviewWorkflow: opts.reviewWorkflow ?? false,
+					reviewStepEnabled: opts.reviewStep !== false,
 				});
 			} catch (error) {
 				console.error('ERROR:', error instanceof Error ? error.message : error);

@@ -6,6 +6,7 @@ import {TaskManager} from './task-manager.js';
 import {GitManager} from './git.js';
 import {buildInvestigatePrompt, buildImplementPrompt} from './prompts.js';
 import {isAutoWorkEnabled} from './auto-work.js';
+import {performReview} from './review.js';
 
 /**
  * Main orchestrator for whitesmith.
@@ -396,6 +397,13 @@ export class Orchestrator {
 				);
 
 				console.log(`PR created: ${prUrl}`);
+
+				// Queue review of the task proposal
+				if (this.config.review) {
+					await this.git.checkoutMain();
+					await this.reviewTaskProposal(issue.number);
+					return; // Already on main after review
+				}
 			}
 		} catch (error) {
 			console.error('Investigation failed:', error instanceof Error ? error.message : error);
@@ -496,6 +504,12 @@ export class Orchestrator {
 					}
 
 					console.log(`PR created: ${prUrl}`);
+					// Queue review of the implementation PR
+					if (this.config.review) {
+						await this.git.checkoutMain();
+						await this.reviewImplementationPR(issue.number);
+						return; // Already on main after review
+					}
 				} else {
 					console.log(
 						`Task ${task.id} committed. ${remainingTasks.length} task(s) remaining for issue #${issue.number}.`,
@@ -508,5 +522,51 @@ export class Orchestrator {
 
 		// Return to main
 		await this.git.checkoutMain();
+	}
+
+	/**
+	 * Review a task proposal (investigate PR).
+	 * Posts the review as a comment on the task proposal PR.
+	 */
+	private async reviewTaskProposal(issueNumber: number): Promise<void> {
+		console.log(`Reviewing task proposal for issue #${issueNumber}...`);
+		try {
+			await performReview(
+				{type: 'issue-tasks', issueNumber},
+				{
+					workDir: this.config.workDir,
+					repo: this.config.repo,
+					logFile: this.config.logFile,
+					post: !this.config.noPush,
+				},
+				this.issues,
+				this.agent,
+			);
+		} catch (error) {
+			console.error('Review failed:', error instanceof Error ? error.message : error);
+		}
+	}
+
+	/**
+	 * Review an implementation PR (all tasks completed for an issue).
+	 * Posts the review as a comment on the implementation PR.
+	 */
+	private async reviewImplementationPR(issueNumber: number): Promise<void> {
+		console.log(`Reviewing implementation for issue #${issueNumber}...`);
+		try {
+			await performReview(
+				{type: 'issue-tasks-completed', issueNumber},
+				{
+					workDir: this.config.workDir,
+					repo: this.config.repo,
+					logFile: this.config.logFile,
+					post: !this.config.noPush,
+				},
+				this.issues,
+				this.agent,
+			);
+		} catch (error) {
+			console.error('Review failed:', error instanceof Error ? error.message : error);
+		}
 	}
 }

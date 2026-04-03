@@ -82,6 +82,8 @@ export interface DevPulseConfig {
 	dryRun: boolean;
 	/** Enable auto-work mode (auto-approve task PRs) */
 	autoWork: boolean;
+	/** Enable review step after PRs are created (on by default) */
+	review: boolean;
 	/** Log file path */
 	logFile?: string;
 	/** GitHub repo in "owner/repo" format (auto-detected if not set) */
