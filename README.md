@@ -260,9 +260,10 @@ Interactive setup wizard that generates GitHub Actions workflows, a shared compo
 | File | Description |
 |---|---|
 | `.github/actions/setup-whitesmith/action.yml` | Composite action: Node.js setup, git config, install whitesmith + pi, configure auth |
-| `.github/workflows/whitesmith.yml` | Main loop — runs on a schedule (every 15 min) and manual dispatch |
+| `.github/workflows/whitesmith.yml` | Main workflow — manual dispatch for catch-up or debugging (event-driven workflows handle normal operation) |
+| `.github/workflows/whitesmith-issue.yml` | Triggered on new issues — begins investigation immediately |
 | `.github/workflows/whitesmith-comment.yml` | Responds to issue/PR comments (triggered by `/whitesmith` or comments on managed branches) |
-| `.github/workflows/whitesmith-reconcile.yml` | Reconciles on PR merge to `main` |
+| `.github/workflows/whitesmith-reconcile.yml` | Reconciles on PR merge to `main` — triggers implementation or closes completed issues |
 | `.github/workflows/whitesmith-review.yml` | *(optional)* Reviews PRs on open/synchronize |
 
 #### Auth Modes
@@ -325,21 +326,33 @@ This generates all necessary workflows, the shared setup action, and configures 
 
 ### Architecture
 
-The generated CI setup consists of:
+The generated CI setup uses an **event-driven architecture** — whitesmith reacts to GitHub events immediately instead of polling on a schedule:
+
+- **Issue created** → investigate immediately
+- **Task PR merged** → implement immediately
+- **Implementation PR merged** → reconcile immediately
+- **Comment on issue/PR** → respond immediately
+- **Manual `workflow_dispatch`** → fallback for catch-up or debugging
+
+The setup consists of:
 
 1. **Composite action** (`.github/actions/setup-whitesmith/action.yml`) — Shared setup logic used by all workflows: installs Node.js, configures git, installs whitesmith + pi, sets up AI provider authentication. Supports npm caching for faster CI runs.
 
-2. **Main workflow** (`whitesmith.yml`) — Runs the `whitesmith run` loop on a schedule (every 15 minutes) and via manual dispatch. Uses concurrency groups to prevent overlapping runs.
+2. **Issue workflow** (`whitesmith-issue.yml`) — Triggered when a new issue is opened. Runs `whitesmith run --issue <N>` to immediately begin investigation.
 
-3. **Comment workflow** (`whitesmith-comment.yml`) — Triggered by `issue_comment` events. Runs when:
+3. **Main workflow** (`whitesmith.yml`) — Manual `workflow_dispatch` trigger for catch-up or debugging. Accepts an optional `issue` input to target a specific issue, or runs a global scan when omitted. Uses per-issue or global concurrency groups to prevent overlapping runs.
+
+4. **Comment workflow** (`whitesmith-comment.yml`) — Triggered by `issue_comment` events. Runs when:
    - The comment body contains `/whitesmith` (slash command trigger)
    - The comment is on a PR whose branch matches `investigate/*` or `task/*` (whitesmith-managed branches)
 
    The workflow reacts to the comment with 👀, runs the agent, then reacts with 👍 on success or 👎 on failure.
 
-4. **Reconcile workflow** (`whitesmith-reconcile.yml`) — Triggered when a PR is merged to `main`. Runs `whitesmith reconcile` to transition issue labels and close completed issues.
+5. **Reconcile workflow** (`whitesmith-reconcile.yml`) — Triggered when a PR is merged to `main`. Handles two cases:
+   - **Task PR merged** (branch `investigate/<N>`) → runs `whitesmith run --issue <N>` to begin implementation immediately.
+   - **Implementation PR merged** (branch `issue/<N>`) or other merges → runs `whitesmith reconcile` to transition issue labels and close completed issues.
 
-5. **Review workflow** (`whitesmith-review.yml`, optional) — Triggered on PR open/synchronize. Runs an AI review and posts the result as a comment. When the review step is enabled in the main loop, this workflow skips whitesmith-managed branches (already reviewed inline). Pass `--review-workflow` to `install-ci` to generate this workflow.
+6. **Review workflow** (`whitesmith-review.yml`, optional) — Triggered on PR open/synchronize. Runs an AI review and posts the result as a comment. When the review step is enabled in the main loop, this workflow skips whitesmith-managed branches (already reviewed inline). Pass `--review-workflow` to `install-ci` to generate this workflow.
 
 ### Required Repository Settings
 

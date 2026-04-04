@@ -418,10 +418,10 @@ function generateMainWorkflow(config: CIConfig): string {
 name: whitesmith
 
 on:
-  schedule:
-    - cron: '*/15 * * * *'
   workflow_dispatch:
     inputs:
+      issue:
+        description: 'Issue number to target (leave empty for global scan)'
       max_iterations:
         description: 'Maximum iterations'
         default: '3'
@@ -434,7 +434,7 @@ env:
 ${envBlock}
 
 concurrency:
-  group: whitesmith-loop
+  group: \${{ inputs.issue && format('whitesmith-issue-{0}', inputs.issue) || 'whitesmith-global' }}
   cancel-in-progress: false
 
 permissions:
@@ -453,7 +453,12 @@ jobs:
       - uses: ./.github/actions/setup-whitesmith
 
       - run: |
+          ISSUE_FLAG=""
+          if [ -n "\${{ inputs.issue }}" ]; then
+            ISSUE_FLAG="--issue \${{ inputs.issue }}"
+          fi
           whitesmith run . \\
+            \$ISSUE_FLAG \\
             --provider "\${{ inputs.provider || env.WHITESMITH_PROVIDER }}" \\
             --model "\${{ inputs.model || env.WHITESMITH_MODEL }}" \\
             --max-iterations \${{ inputs.max_iterations || '3' }}
@@ -642,7 +647,50 @@ ${skipWhitesmithCheck}
 `;
 }
 
-function generateReconcileWorkflow(): string {
+function generateIssueWorkflow(config: CIConfig): string {
+	const envBlock = generateTopLevelEnv(config);
+
+	return `\
+name: whitesmith-issue
+
+on:
+  issues:
+    types: [opened]
+
+env:
+${envBlock}
+
+concurrency:
+  group: whitesmith-issue-\${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-whitesmith
+
+      - run: |
+          whitesmith run . \\
+            --issue "\${{ github.event.issue.number }}" \\
+            --provider "$WHITESMITH_PROVIDER" \\
+            --model "$WHITESMITH_MODEL" \\
+            --max-iterations 10
+`;
+}
+
+function generateReconcileWorkflow(config: CIConfig): string {
+	const envBlock = generateTopLevelEnv(config);
+
 	return `\
 name: whitesmith-reconcile
 
@@ -652,17 +700,64 @@ on:
     branches: [main]
 
 env:
-  GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+${envBlock}
 
 permissions:
-  contents: read
+  contents: write
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 jobs:
-  reconcile:
+  parse:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
+    outputs:
+      issue_number: \${{ steps.parse.outputs.issue_number }}
+      branch_type: \${{ steps.parse.outputs.branch_type }}
+    steps:
+      - id: parse
+        run: |
+          BRANCH="\${{ github.event.pull_request.head.ref }}"
+          INVESTIGATE_NUM=$(echo "$BRANCH" | sed -n 's|^investigate/\\([0-9]*\\)$|\\1|p')
+          ISSUE_NUM=$(echo "$BRANCH" | sed -n 's|^issue/\\([0-9]*\\)$|\\1|p')
+          if [ -n "$INVESTIGATE_NUM" ]; then
+            echo "issue_number=$INVESTIGATE_NUM" >> "$GITHUB_OUTPUT"
+            echo "branch_type=investigate" >> "$GITHUB_OUTPUT"
+          elif [ -n "$ISSUE_NUM" ]; then
+            echo "issue_number=$ISSUE_NUM" >> "$GITHUB_OUTPUT"
+            echo "branch_type=issue" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch_type=other" >> "$GITHUB_OUTPUT"
+          fi
+
+  implement:
+    needs: parse
+    if: needs.parse.outputs.branch_type == 'investigate'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: whitesmith-issue-\${{ needs.parse.outputs.issue_number }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-whitesmith
+
+      - run: |
+          whitesmith run . \\
+            --issue "\${{ needs.parse.outputs.issue_number }}" \\
+            --provider "$WHITESMITH_PROVIDER" \\
+            --model "$WHITESMITH_MODEL" \\
+            --max-iterations 10
+
+  reconcile:
+    needs: parse
+    if: needs.parse.outputs.branch_type != 'investigate'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: \${{ (needs.parse.outputs.issue_number && format('whitesmith-issue-{0}', needs.parse.outputs.issue_number)) || 'whitesmith-reconcile-other' }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 
@@ -968,8 +1063,12 @@ export async function installGitHubCI(
 			content: generateCommentWorkflow(config),
 		},
 		{
+			path: path.join(workflowsDir, 'whitesmith-issue.yml'),
+			content: generateIssueWorkflow(config),
+		},
+		{
 			path: path.join(workflowsDir, 'whitesmith-reconcile.yml'),
-			content: generateReconcileWorkflow(),
+			content: generateReconcileWorkflow(config),
 		},
 	];
 
