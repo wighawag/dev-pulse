@@ -658,9 +658,7 @@ describe('Orchestrator', () => {
 			await orch.run();
 
 			// Should reconcile (create safety-net PR) rather than implement
-			expect(issues.createPR).toHaveBeenCalledWith(
-				expect.objectContaining({head: 'issue/1'}),
-			);
+			expect(issues.createPR).toHaveBeenCalledWith(expect.objectContaining({head: 'issue/1'}));
 			// Should NOT close the issue
 			expect(issues.closeIssue).not.toHaveBeenCalled();
 			expect(agent.run).not.toHaveBeenCalled();
@@ -1278,7 +1276,11 @@ describe('Orchestrator', () => {
 			// First fetch: no labels (investigate)
 			// Second fetch: tasks-proposed + tasks on main (transition to tasks-accepted + implement)
 			const issueFetch1 = makeIssue({number: 42, title: 'Pipeline', labels: []});
-			const issueFetch2 = makeIssue({number: 42, title: 'Pipeline', labels: [LABELS.TASKS_PROPOSED]});
+			const issueFetch2 = makeIssue({
+				number: 42,
+				title: 'Pipeline',
+				labels: [LABELS.TASKS_PROPOSED],
+			});
 
 			const getIssueMock = vi
 				.fn()

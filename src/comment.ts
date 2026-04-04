@@ -328,13 +328,15 @@ async function gatherRelatedPRs(
 	// Implementation PR (single branch per issue)
 	const implPR = await issues.getPRForBranch(`issue/${issueNumber}`);
 	if (implPR) {
-		context.implementationPRs = [{
-			branch: `issue/${issueNumber}`,
-			number: implPR.number,
-			title: '',
-			state: implPR.state,
-			url: implPR.url,
-		}];
+		context.implementationPRs = [
+			{
+				branch: `issue/${issueNumber}`,
+				number: implPR.number,
+				title: '',
+				state: implPR.state,
+				url: implPR.url,
+			},
+		];
 	}
 }
 
