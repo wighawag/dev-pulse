@@ -36,6 +36,7 @@ function createMockIssueProvider(overrides: Partial<IssueProvider> = {}): IssueP
 		ensureLabels: vi.fn().mockResolvedValue(undefined),
 		listPRsByBranchPrefix: vi.fn().mockResolvedValue([]),
 		getPR: vi.fn().mockResolvedValue(null),
+		listComments: vi.fn().mockResolvedValue([]),
 		...overrides,
 	};
 }
@@ -58,6 +59,7 @@ function createConfig(workDir: string, overrides: Partial<DevPulseConfig> = {}):
 		noPush: true,
 		noSleep: true,
 		review: false,
+		maxAmbiguityCycles: 3,
 		...overrides,
 	};
 }
@@ -417,6 +419,144 @@ describe('Orchestrator', () => {
 			expect(issues.addLabel).toHaveBeenCalledWith(13, LABELS.TASKS_PROPOSED);
 			// Should NOT add needs-clarification label
 			expect(issues.addLabel).not.toHaveBeenCalledWith(13, LABELS.NEEDS_CLARIFICATION);
+		});
+
+		it('escalates to human review when ambiguity cycle limit is reached', async () => {
+			const issue = makeIssue({number: 14, title: 'Endlessly ambiguous'});
+
+			const issues = createMockIssueProvider({
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [];
+						if (opts?.noLabels) return [issue];
+						return [];
+					}),
+				// 2 prior clarification comments from the bot (limit is 3, so 2 existing = at limit)
+				listComments: vi.fn().mockResolvedValue([
+					{author: 'github-actions[bot]', body: "\ud83e\udd14 I've analyzed this issue and need clarification...cycle 1"},
+					{author: 'github-actions[bot]', body: "\ud83e\udd14 I've analyzed this issue and need clarification...cycle 2"},
+					{author: 'someuser', body: 'Here is more info'},
+				]),
+			});
+
+			const agent = createMockAgent({
+				run: vi.fn().mockImplementation(async () => {
+					fs.writeFileSync(
+						path.join(tmpDir, '.whitesmith-ambiguity.md'),
+						'## Questions\n1. Still unclear\n',
+					);
+					return {output: 'done', exitCode: 0};
+				}),
+			});
+
+			const config = createConfig(tmpDir, {noPush: false, maxAmbiguityCycles: 3});
+			const orch = new Orchestrator(config, issues, agent);
+			await orch.run();
+
+			// Should NOT post another clarification comment
+			expect(issues.comment).not.toHaveBeenCalledWith(
+				14,
+				expect.stringContaining('need clarification'),
+			);
+			// Should post escalation comment
+			expect(issues.comment).toHaveBeenCalledWith(
+				14,
+				expect.stringContaining('Human review is needed'),
+			);
+			// Should add needs-human-review label
+			expect(issues.addLabel).toHaveBeenCalledWith(14, LABELS.NEEDS_HUMAN_REVIEW);
+			// Should also keep needs-clarification label
+			expect(issues.addLabel).toHaveBeenCalledWith(14, LABELS.NEEDS_CLARIFICATION);
+			// Should NOT create a PR
+			expect(issues.createPR).not.toHaveBeenCalled();
+		});
+
+		it('posts normal clarification when cycle limit not yet reached', async () => {
+			const issue = makeIssue({number: 15, title: 'Somewhat ambiguous'});
+
+			const issues = createMockIssueProvider({
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [];
+						if (opts?.noLabels) return [issue];
+						return [];
+					}),
+				// Only 1 prior clarification comment (limit is 3, so still under)
+				listComments: vi.fn().mockResolvedValue([
+					{author: 'github-actions[bot]', body: "\ud83e\udd14 I've analyzed this issue and need clarification...cycle 1"},
+				]),
+			});
+
+			const agent = createMockAgent({
+				run: vi.fn().mockImplementation(async () => {
+					fs.writeFileSync(
+						path.join(tmpDir, '.whitesmith-ambiguity.md'),
+						'## Questions\n1. More info needed\n',
+					);
+					return {output: 'done', exitCode: 0};
+				}),
+			});
+
+			const config = createConfig(tmpDir, {noPush: false, maxAmbiguityCycles: 3});
+			const orch = new Orchestrator(config, issues, agent);
+			await orch.run();
+
+			// Should post normal clarification comment
+			expect(issues.comment).toHaveBeenCalledWith(
+				15,
+				expect.stringContaining('need clarification'),
+			);
+			// Should NOT post escalation comment
+			expect(issues.comment).not.toHaveBeenCalledWith(
+				15,
+				expect.stringContaining('Human review is needed'),
+			);
+			// Should NOT add needs-human-review label
+			expect(issues.addLabel).not.toHaveBeenCalledWith(15, LABELS.NEEDS_HUMAN_REVIEW);
+		});
+
+		it('counts only bot clarification comments, not user comments', async () => {
+			const issue = makeIssue({number: 16, title: 'Mixed comments'});
+
+			const issues = createMockIssueProvider({
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [];
+						if (opts?.noLabels) return [issue];
+						return [];
+					}),
+				// Many user comments but only 1 bot clarification comment
+				listComments: vi.fn().mockResolvedValue([
+					{author: 'github-actions[bot]', body: "\ud83e\udd14 I've analyzed this issue and need clarification...cycle 1"},
+					{author: 'someuser', body: "\ud83e\udd14 I've analyzed this issue too"},
+					{author: 'anotheruser', body: 'Random comment'},
+					{author: 'github-actions[bot]', body: 'Some other bot message'},
+				]),
+			});
+
+			const agent = createMockAgent({
+				run: vi.fn().mockImplementation(async () => {
+					fs.writeFileSync(
+						path.join(tmpDir, '.whitesmith-ambiguity.md'),
+						'## Questions\n1. More info\n',
+					);
+					return {output: 'done', exitCode: 0};
+				}),
+			});
+
+			const config = createConfig(tmpDir, {noPush: false, maxAmbiguityCycles: 3});
+			const orch = new Orchestrator(config, issues, agent);
+			await orch.run();
+
+			// Only 1 bot clarification, so should post normal clarification (not escalate)
+			expect(issues.comment).toHaveBeenCalledWith(
+				16,
+				expect.stringContaining('need clarification'),
+			);
+			expect(issues.addLabel).not.toHaveBeenCalledWith(16, LABELS.NEEDS_HUMAN_REVIEW);
 		});
 	});
 
@@ -1371,6 +1511,25 @@ describe('Orchestrator', () => {
 
 		it('goes idle when issue has completed label', async () => {
 			const issue = makeIssue({number: 42, title: 'Done', labels: [LABELS.COMPLETED]});
+
+			const issues = createMockIssueProvider({
+				getIssue: vi.fn().mockResolvedValue(issue),
+			});
+
+			const agent = createMockAgent();
+			const config = createConfig(tmpDir, {issueNumber: 42, maxIterations: 1});
+			const orch = new Orchestrator(config, issues, agent);
+			await orch.run();
+
+			expect(agent.run).not.toHaveBeenCalled();
+		});
+
+		it('goes idle when issue has needs-human-review label', async () => {
+			const issue = makeIssue({
+				number: 42,
+				title: 'Stuck',
+				labels: [LABELS.NEEDS_CLARIFICATION, LABELS.NEEDS_HUMAN_REVIEW],
+			});
 
 			const issues = createMockIssueProvider({
 				getIssue: vi.fn().mockResolvedValue(issue),

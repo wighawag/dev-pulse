@@ -1,5 +1,5 @@
 import {describe, it, expect} from 'vitest';
-import {buildInvestigatePrompt, buildImplementPrompt, buildClarificationComment} from '../src/prompts.js';
+import {buildInvestigatePrompt, buildImplementPrompt, buildClarificationComment, buildEscalationComment} from '../src/prompts.js';
 import type {Issue, Task} from '../src/types.js';
 
 const sampleIssue: Issue = {
@@ -106,6 +106,29 @@ describe('buildClarificationComment', () => {
 		const comment = buildClarificationComment('  \n  Some questions  \n  ');
 		expect(comment).toContain('Some questions');
 		expect(comment).not.toContain('  \n  Some questions');
+	});
+});
+
+describe('buildEscalationComment', () => {
+	it('includes the warning emoji', () => {
+		const comment = buildEscalationComment();
+		expect(comment).toContain('⚠️');
+	});
+
+	it('includes human review needed message', () => {
+		const comment = buildEscalationComment();
+		expect(comment).toContain('Human review is needed');
+	});
+
+	it('includes instructions to remove labels', () => {
+		const comment = buildEscalationComment();
+		expect(comment).toContain('whitesmith:needs-human-review');
+		expect(comment).toContain('whitesmith:needs-clarification');
+	});
+
+	it('mentions issue will not be auto-investigated', () => {
+		const comment = buildEscalationComment();
+		expect(comment).toContain('will not be auto-investigated');
 	});
 });
 

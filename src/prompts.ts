@@ -329,6 +329,21 @@ Do NOT commit, push, or create PRs.
 }
 
 /**
+ * Build the escalation comment posted when the ambiguity cycle limit has been reached.
+ * Tells the human to review the issue manually.
+ */
+export function buildEscalationComment(): string {
+	return `⚠️ This issue has gone through multiple clarification cycles without reaching a clear task breakdown.
+
+**Human review is needed.** Please:
+1. Review the issue description and previous clarification attempts
+2. Either update the issue with more detail or break it down manually
+3. Remove the \`whitesmith:needs-human-review\` and \`whitesmith:needs-clarification\` labels when ready for the agent to retry
+
+_This issue will not be auto-investigated until the labels are removed._`;
+}
+
+/**
  * Build the comment posted on an issue when the agent signals ambiguity.
  * Includes the agent's clarification questions and instructions for the user.
  */

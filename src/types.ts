@@ -60,6 +60,8 @@ export const LABELS = {
 	AUTO_WORK: 'whitesmith:auto-work',
 	/** Issue needs clarification before tasks can be generated */
 	NEEDS_CLARIFICATION: 'whitesmith:needs-clarification',
+	/** Issue needs human review after repeated ambiguity cycles */
+	NEEDS_HUMAN_REVIEW: 'whitesmith:needs-human-review',
 } as const;
 
 /**
@@ -92,6 +94,8 @@ export interface DevPulseConfig {
 	repo?: string;
 	/** Target a single issue number (single-issue run mode) */
 	issueNumber?: number;
+	/** Maximum ambiguity cycles before escalating to human review (default: 3) */
+	maxAmbiguityCycles?: number;
 }
 
 /**

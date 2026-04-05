@@ -6,7 +6,7 @@ import type {IssueProvider} from './providers/issue-provider.js';
 import type {AgentHarness} from './harnesses/agent-harness.js';
 import {TaskManager} from './task-manager.js';
 import {GitManager} from './git.js';
-import {buildInvestigatePrompt, buildImplementPrompt, buildClarificationComment} from './prompts.js';
+import {buildInvestigatePrompt, buildImplementPrompt, buildClarificationComment, buildEscalationComment} from './prompts.js';
 import {isAutoWorkEnabled} from './auto-work.js';
 import {performReview} from './review.js';
 import type {ReviewResult} from './review.js';
@@ -246,6 +246,11 @@ export class Orchestrator {
 			await this.issues.removeLabel(issue.number, LABELS.INVESTIGATING);
 			// Treat as uninvestigated — re-investigate
 			return {type: 'investigate', issue};
+		}
+
+		// needs-human-review: stop auto-investigating, wait for human
+		if (labels.includes(LABELS.NEEDS_HUMAN_REVIEW)) {
+			return {type: 'idle'};
 		}
 
 		// needs-clarification: re-investigate with updated issue body
@@ -567,6 +572,25 @@ export class Orchestrator {
 				console.log(`Agent signaled ambiguity for issue #${issue.number}`);
 				await this.git.checkoutMain();
 				await this.git.deleteLocalBranch(branch);
+
+				// Check if we've hit the ambiguity cycle limit before posting another clarification
+				const maxCycles = this.config.maxAmbiguityCycles ?? 3;
+				const comments = await this.issues.listComments(issue.number);
+				const botUsernames = ['whitesmith[bot]', 'github-actions[bot]'];
+				const clarificationCount = comments.filter(
+					(c) => botUsernames.includes(c.author) && c.body.startsWith('🤔 I\'ve analyzed this issue'),
+				).length;
+
+				if (clarificationCount >= maxCycles - 1) {
+					// Escalate: too many cycles, need human review
+					console.log(`Ambiguity cycle limit reached (${clarificationCount + 1}/${maxCycles}) for issue #${issue.number}, escalating`);
+					await this.issues.removeLabel(issue.number, LABELS.INVESTIGATING);
+					await this.issues.addLabel(issue.number, LABELS.NEEDS_CLARIFICATION);
+					await this.issues.addLabel(issue.number, LABELS.NEEDS_HUMAN_REVIEW);
+					await this.issues.comment(issue.number, buildEscalationComment());
+					return;
+				}
+
 				await this.issues.removeLabel(issue.number, LABELS.INVESTIGATING);
 				await this.issues.addLabel(issue.number, LABELS.NEEDS_CLARIFICATION);
 				await this.issues.comment(
