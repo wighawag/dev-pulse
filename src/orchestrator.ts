@@ -248,9 +248,9 @@ export class Orchestrator {
 			return {type: 'investigate', issue};
 		}
 
-		// needs-clarification: idle (will change to re-investigate in 43-003)
+		// needs-clarification: re-investigate with updated issue body
 		if (labels.includes(LABELS.NEEDS_CLARIFICATION)) {
-			return {type: 'idle'};
+			return {type: 'investigate', issue};
 		}
 
 		// tasks-accepted: check if all tasks are done (reconcile) or implement next task
@@ -508,6 +508,11 @@ export class Orchestrator {
 
 		// Claim the issue
 		await this.issues.addLabel(issue.number, LABELS.INVESTIGATING);
+
+		// If re-investigating after clarification, remove the needs-clarification label
+		if (issue.labels.includes(LABELS.NEEDS_CLARIFICATION)) {
+			await this.issues.removeLabel(issue.number, LABELS.NEEDS_CLARIFICATION);
+		}
 
 		const branch = `investigate/${issue.number}`;
 		const issueTasksDir = `tasks/${issue.number}`;

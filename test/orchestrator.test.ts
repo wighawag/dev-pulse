@@ -1384,7 +1384,7 @@ describe('Orchestrator', () => {
 			expect(agent.run).not.toHaveBeenCalled();
 		});
 
-		it('goes idle when issue has needs-clarification label', async () => {
+		it('re-investigates when issue has needs-clarification label', async () => {
 			const issue = makeIssue({
 				number: 42,
 				title: 'Needs info',
@@ -1395,12 +1395,91 @@ describe('Orchestrator', () => {
 				getIssue: vi.fn().mockResolvedValue(issue),
 			});
 
-			const agent = createMockAgent();
+			const agent = createMockAgent({
+				run: vi.fn().mockImplementation(async () => {
+					writeTaskFile(tmpDir, 42, 1, 'clarified-task');
+					return {output: 'done', exitCode: 0};
+				}),
+			});
+
 			const config = createConfig(tmpDir, {issueNumber: 42, maxIterations: 1});
 			const orch = new Orchestrator(config, issues, agent);
 			await orch.run();
 
-			expect(agent.run).not.toHaveBeenCalled();
+			// Should investigate (agent is called)
+			expect(agent.run).toHaveBeenCalledTimes(1);
+			// Should add investigating label
+			expect(issues.addLabel).toHaveBeenCalledWith(42, LABELS.INVESTIGATING);
+			// Should remove needs-clarification label
+			expect(issues.removeLabel).toHaveBeenCalledWith(42, LABELS.NEEDS_CLARIFICATION);
+		});
+
+		it('removes needs-clarification label during re-investigation before agent runs', async () => {
+			const issue = makeIssue({
+				number: 42,
+				title: 'Clarified',
+				labels: [LABELS.NEEDS_CLARIFICATION],
+			});
+
+			const addLabelCalls: Array<{number: number; label: string}> = [];
+			const removeLabelCalls: Array<{number: number; label: string}> = [];
+
+			const issues = createMockIssueProvider({
+				getIssue: vi.fn().mockResolvedValue(issue),
+				addLabel: vi.fn().mockImplementation(async (num: number, label: string) => {
+					addLabelCalls.push({number: num, label});
+				}),
+				removeLabel: vi.fn().mockImplementation(async (num: number, label: string) => {
+					removeLabelCalls.push({number: num, label});
+				}),
+			});
+
+			const agent = createMockAgent({
+				run: vi.fn().mockImplementation(async () => {
+					writeTaskFile(tmpDir, 42, 1, 'task');
+					return {output: 'done', exitCode: 0};
+				}),
+			});
+
+			const config = createConfig(tmpDir, {issueNumber: 42, maxIterations: 1});
+			const orch = new Orchestrator(config, issues, agent);
+			await orch.run();
+
+			// Verify order: investigating label added first, then needs-clarification removed
+			const investigatingAddIndex = addLabelCalls.findIndex(
+				(c) => c.label === LABELS.INVESTIGATING,
+			);
+			const needsClarificationRemoveIndex = removeLabelCalls.findIndex(
+				(c) => c.label === LABELS.NEEDS_CLARIFICATION,
+			);
+			expect(investigatingAddIndex).toBeGreaterThanOrEqual(0);
+			expect(needsClarificationRemoveIndex).toBeGreaterThanOrEqual(0);
+		});
+
+		it('does not remove needs-clarification label during normal investigation', async () => {
+			const issue = makeIssue({
+				number: 42,
+				title: 'New issue',
+				labels: [],
+			});
+
+			const issues = createMockIssueProvider({
+				getIssue: vi.fn().mockResolvedValue(issue),
+			});
+
+			const agent = createMockAgent({
+				run: vi.fn().mockImplementation(async () => {
+					writeTaskFile(tmpDir, 42, 1, 'task');
+					return {output: 'done', exitCode: 0};
+				}),
+			});
+
+			const config = createConfig(tmpDir, {issueNumber: 42, maxIterations: 1});
+			const orch = new Orchestrator(config, issues, agent);
+			await orch.run();
+
+			// Should NOT try to remove needs-clarification (it wasn't there)
+			expect(issues.removeLabel).not.toHaveBeenCalledWith(42, LABELS.NEEDS_CLARIFICATION);
 		});
 
 		it('re-fetches issue after each action to get updated labels', async () => {
