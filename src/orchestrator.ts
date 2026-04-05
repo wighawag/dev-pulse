@@ -55,6 +55,7 @@ export class Orchestrator {
 	private agent: AgentHarness;
 	private tasks: TaskManager;
 	private git: GitManager;
+	private clarificationPostedFor = new Set<number>();
 
 	constructor(config: DevPulseConfig, issues: IssueProvider, agent: AgentHarness) {
 		this.config = config;
@@ -258,8 +259,11 @@ export class Orchestrator {
 			return {type: 'idle'};
 		}
 
-		// needs-clarification: re-investigate with updated issue body
+		// needs-clarification: wait for human to edit the issue (triggers a new run via whitesmith-issue.yml)
 		if (labels.includes(LABELS.NEEDS_CLARIFICATION)) {
+			if (this.clarificationPostedFor.has(issue.number)) {
+				return {type: 'idle'};
+			}
 			return {type: 'investigate', issue};
 		}
 
@@ -602,6 +606,7 @@ export class Orchestrator {
 				await this.issues.removeLabel(issue.number, LABELS.INVESTIGATING);
 				await this.issues.addLabel(issue.number, LABELS.NEEDS_CLARIFICATION);
 				await this.issues.comment(issue.number, buildClarificationComment(clarificationText));
+				this.clarificationPostedFor.add(issue.number);
 				return;
 			}
 
