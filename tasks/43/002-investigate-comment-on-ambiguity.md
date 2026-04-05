@@ -45,10 +45,9 @@ investigate() → agent signals ambiguity?
    ---
 
    **How to respond:**
-   1. **Edit this issue** (preferred) — update the description with the missing details
-   2. **Reply to this comment** — but please include full context in your reply. **I don't read comment history**, only the latest reply.
+   **Edit this issue** — update the description with the missing details.
 
-   I'll automatically re-analyze when the issue is updated.
+   I'll automatically re-analyze when the issue description is updated.
    ```
 
 4. **Update `decideAction()` and `decideActionForIssue()`** — Issues with the `needs-clarification` label should be treated as "waiting" (idle), not picked up for investigation.
@@ -63,8 +62,7 @@ investigate() → agent signals ambiguity?
 ## Acceptance Criteria
 
 - When the agent signals ambiguity, a comment is posted on the issue with the clarification questions
-- The comment includes clear instructions about editing the issue vs. replying
-- The comment explicitly warns that comment history is not read
+- The comment includes clear instructions to edit the issue to provide clarification
 - No PR is created when investigation is ambiguous
 - No branch is pushed when investigation is ambiguous
 - The `needs-clarification` label is applied to the issue
