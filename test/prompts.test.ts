@@ -53,6 +53,28 @@ describe('buildInvestigatePrompt', () => {
 		expect(prompt).toContain('git commit');
 		expect(prompt).toContain('Do NOT push');
 	});
+
+	it('includes ambiguity escape hatch instructions', () => {
+		const prompt = buildInvestigatePrompt(sampleIssue, 'tasks/42');
+		expect(prompt).toContain('.whitesmith-ambiguity.md');
+		expect(prompt).toContain('Ambiguity Escape Hatch');
+	});
+
+	it('tells the agent NOT to create task files when signaling ambiguity', () => {
+		const prompt = buildInvestigatePrompt(sampleIssue, 'tasks/42');
+		expect(prompt).toContain('Do NOT create any task files');
+	});
+
+	it('tells the agent NOT to commit when signaling ambiguity', () => {
+		const prompt = buildInvestigatePrompt(sampleIssue, 'tasks/42');
+		expect(prompt).toContain('Do NOT commit anything');
+	});
+
+	it('instructs the agent to include questions in the ambiguity file', () => {
+		const prompt = buildInvestigatePrompt(sampleIssue, 'tasks/42');
+		expect(prompt).toContain('Questions');
+		expect(prompt).toContain('Summary');
+	});
 });
 
 describe('buildImplementPrompt', () => {

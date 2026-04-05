@@ -56,6 +56,27 @@ depends_on: []
 - Consider the existing codebase patterns and conventions.
 - Create the \`${issueTasksDir}\` directory if it doesn't exist.
 
+## Ambiguity Escape Hatch
+
+If the issue is **ambiguous, unclear, or needs more information** before you can break it into tasks:
+
+1. **Do NOT create any task files.**
+2. **Do NOT commit anything.**
+3. Instead, write a file called \`.whitesmith-ambiguity.md\` in the repository root with the following structure:
+
+\`\`\`markdown
+## Summary
+<Brief summary of what you understood from the issue>
+
+## Questions
+1. <Specific question or clarification needed>
+2. <Another question>
+\`\`\`
+
+The file should contain a brief summary of what was understood, followed by numbered questions that need to be answered before tasks can be generated.
+
+Only use this escape hatch when the issue genuinely lacks enough information to produce meaningful tasks. If the issue is reasonably clear, generate tasks as described above.
+
 ## When Done
 
 After creating all task files, commit your changes:

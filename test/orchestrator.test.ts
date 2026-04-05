@@ -2,7 +2,7 @@ import {describe, it, expect, beforeEach, afterEach, vi} from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import {Orchestrator} from '../src/orchestrator.js';
+import {Orchestrator, checkForAmbiguity} from '../src/orchestrator.js';
 import {LABELS} from '../src/types.js';
 import type {Issue, DevPulseConfig, Task} from '../src/types.js';
 import type {IssueProvider} from '../src/providers/issue-provider.js';
@@ -1565,5 +1565,58 @@ describe('Orchestrator', () => {
 			// Should NOT create PR (task 2 still remaining)
 			expect(issues.createPR).not.toHaveBeenCalled();
 		});
+	});
+});
+
+describe('checkForAmbiguity', () => {
+	let tmpDir: string;
+
+	beforeEach(() => {
+		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'whitesmith-ambiguity-'));
+	});
+
+	afterEach(() => {
+		fs.rmSync(tmpDir, {recursive: true, force: true});
+	});
+
+	it('returns null when .whitesmith-ambiguity.md does not exist', () => {
+		const result = checkForAmbiguity(tmpDir);
+		expect(result).toBeNull();
+	});
+
+	it('returns trimmed content when .whitesmith-ambiguity.md exists', () => {
+		const content = '## Summary\nUnclear requirements.\n\n## Questions\n1. What is the scope?\n';
+		fs.writeFileSync(path.join(tmpDir, '.whitesmith-ambiguity.md'), content);
+
+		const result = checkForAmbiguity(tmpDir);
+		expect(result).toBe(content.trim());
+	});
+
+	it('deletes the file after reading', () => {
+		fs.writeFileSync(path.join(tmpDir, '.whitesmith-ambiguity.md'), 'questions here');
+
+		checkForAmbiguity(tmpDir);
+
+		expect(fs.existsSync(path.join(tmpDir, '.whitesmith-ambiguity.md'))).toBe(false);
+	});
+
+	it('returns content with whitespace trimmed', () => {
+		fs.writeFileSync(path.join(tmpDir, '.whitesmith-ambiguity.md'), '  \n  some content  \n  ');
+
+		const result = checkForAmbiguity(tmpDir);
+		expect(result).toBe('some content');
+	});
+});
+
+describe('git exclude pattern for .whitesmith-*', () => {
+	it('.whitesmith-ambiguity.md matches the .whitesmith-* glob pattern', () => {
+		// The ensureExcluded() method in GitManager adds the pattern '.whitesmith-*'
+		// to .git/info/exclude. This test verifies the pattern would match our file.
+		const pattern = '.whitesmith-*';
+		const filename = '.whitesmith-ambiguity.md';
+
+		// Simple glob matching: .whitesmith-* matches any file starting with .whitesmith-
+		const prefix = pattern.replace('*', '');
+		expect(filename.startsWith(prefix)).toBe(true);
 	});
 });

@@ -1,3 +1,5 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type {DevPulseConfig, Issue, Task, Action} from './types.js';
 import {LABELS} from './types.js';
 import type {IssueProvider} from './providers/issue-provider.js';
@@ -8,6 +10,27 @@ import {buildInvestigatePrompt, buildImplementPrompt} from './prompts.js';
 import {isAutoWorkEnabled} from './auto-work.js';
 import {performReview} from './review.js';
 import type {ReviewResult} from './review.js';
+
+/**
+ * Check whether the agent signaled ambiguity during investigation.
+ *
+ * Looks for `.whitesmith-ambiguity.md` in the given working directory.
+ * If found, reads its contents, deletes the file, and returns the trimmed content.
+ * If not found, returns null.
+ */
+export function checkForAmbiguity(workDir: string): string | null {
+	const ambiguityPath = path.join(workDir, '.whitesmith-ambiguity.md');
+	if (!fs.existsSync(ambiguityPath)) {
+		return null;
+	}
+	const content = fs.readFileSync(ambiguityPath, 'utf-8').trim();
+	try {
+		fs.unlinkSync(ambiguityPath);
+	} catch {
+		// ignore
+	}
+	return content;
+}
 
 /**
  * Main orchestrator for whitesmith.
