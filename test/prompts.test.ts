@@ -1,5 +1,10 @@
 import {describe, it, expect} from 'vitest';
-import {buildInvestigatePrompt, buildImplementPrompt, buildClarificationComment, buildEscalationComment} from '../src/prompts.js';
+import {
+	buildInvestigatePrompt,
+	buildImplementPrompt,
+	buildClarificationComment,
+	buildEscalationComment,
+} from '../src/prompts.js';
 import type {Issue, Task} from '../src/types.js';
 
 const sampleIssue: Issue = {

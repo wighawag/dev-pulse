@@ -17,5 +17,12 @@ export {GitHubProvider} from './providers/github.js';
 export type {AgentHarness} from './harnesses/agent-harness.js';
 export {PiHarness} from './harnesses/pi.js';
 
-export type {Issue, Task, TaskFrontmatter, DevPulseConfig, Action, InvestigateResult} from './types.js';
+export type {
+	Issue,
+	Task,
+	TaskFrontmatter,
+	DevPulseConfig,
+	Action,
+	InvestigateResult,
+} from './types.js';
 export {LABELS} from './types.js';

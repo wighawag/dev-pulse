@@ -434,8 +434,14 @@ describe('Orchestrator', () => {
 					}),
 				// 2 prior clarification comments from the bot (limit is 3, so 2 existing = at limit)
 				listComments: vi.fn().mockResolvedValue([
-					{author: 'github-actions[bot]', body: "\ud83e\udd14 I've analyzed this issue and need clarification...cycle 1"},
-					{author: 'github-actions[bot]', body: "\ud83e\udd14 I've analyzed this issue and need clarification...cycle 2"},
+					{
+						author: 'github-actions[bot]',
+						body: "\ud83e\udd14 I've analyzed this issue and need clarification...cycle 1",
+					},
+					{
+						author: 'github-actions[bot]',
+						body: "\ud83e\udd14 I've analyzed this issue and need clarification...cycle 2",
+					},
 					{author: 'someuser', body: 'Here is more info'},
 				]),
 			});
@@ -484,9 +490,14 @@ describe('Orchestrator', () => {
 						return [];
 					}),
 				// Only 1 prior clarification comment (limit is 3, so still under)
-				listComments: vi.fn().mockResolvedValue([
-					{author: 'github-actions[bot]', body: "\ud83e\udd14 I've analyzed this issue and need clarification...cycle 1"},
-				]),
+				listComments: vi
+					.fn()
+					.mockResolvedValue([
+						{
+							author: 'github-actions[bot]',
+							body: "\ud83e\udd14 I've analyzed this issue and need clarification...cycle 1",
+						},
+					]),
 			});
 
 			const agent = createMockAgent({
@@ -530,7 +541,10 @@ describe('Orchestrator', () => {
 					}),
 				// Many user comments but only 1 bot clarification comment
 				listComments: vi.fn().mockResolvedValue([
-					{author: 'github-actions[bot]', body: "\ud83e\udd14 I've analyzed this issue and need clarification...cycle 1"},
+					{
+						author: 'github-actions[bot]',
+						body: "\ud83e\udd14 I've analyzed this issue and need clarification...cycle 1",
+					},
 					{author: 'someuser', body: "\ud83e\udd14 I've analyzed this issue too"},
 					{author: 'anotheruser', body: 'Random comment'},
 					{author: 'github-actions[bot]', body: 'Some other bot message'},

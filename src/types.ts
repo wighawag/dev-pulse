@@ -103,8 +103,8 @@ export interface DevPulseConfig {
  * Either tasks were generated, or the agent signaled ambiguity.
  */
 export type InvestigateResult =
-	| { outcome: 'tasks'; taskCount: number }
-	| { outcome: 'ambiguous'; clarificationComment: string };
+	| {outcome: 'tasks'; taskCount: number}
+	| {outcome: 'ambiguous'; clarificationComment: string};
 
 /**
  * What the orchestrator should do next
