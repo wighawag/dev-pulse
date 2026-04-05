@@ -51,6 +51,8 @@ function createMockAgent(overrides: Partial<AgentHarness> = {}): AgentHarness {
 function createConfig(workDir: string, overrides: Partial<DevPulseConfig> = {}): DevPulseConfig {
 	return {
 		agentCmd: 'mock-agent',
+		provider: 'mock-provider',
+		model: 'mock-model',
 		maxIterations: 1,
 		workDir,
 		noPush: true,
@@ -307,6 +309,114 @@ describe('Orchestrator', () => {
 			await orch.run();
 
 			expect(issues.removeLabel).toHaveBeenCalledWith(5, LABELS.INVESTIGATING);
+		});
+
+		it('comments on issue and skips PR when agent signals ambiguity', async () => {
+			const issue = makeIssue({number: 11, title: 'Ambiguous feature'});
+
+			const issues = createMockIssueProvider({
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [];
+						if (opts?.noLabels) return [issue];
+						return [];
+					}),
+			});
+
+			// Agent creates ambiguity file instead of task files
+			const agent = createMockAgent({
+				run: vi.fn().mockImplementation(async () => {
+					fs.writeFileSync(
+						path.join(tmpDir, '.whitesmith-ambiguity.md'),
+						'## Summary\nUnclear scope.\n\n## Questions\n1. What should the scope be?\n',
+					);
+					return {output: 'done', exitCode: 0};
+				}),
+			});
+
+			const config = createConfig(tmpDir, {noPush: false});
+			const orch = new Orchestrator(config, issues, agent);
+			await orch.run();
+
+			// Should NOT create a PR
+			expect(issues.createPR).not.toHaveBeenCalled();
+			// Should remove investigating label
+			expect(issues.removeLabel).toHaveBeenCalledWith(11, LABELS.INVESTIGATING);
+			// Should add needs-clarification label
+			expect(issues.addLabel).toHaveBeenCalledWith(11, LABELS.NEEDS_CLARIFICATION);
+			// Should comment on the issue with clarification questions
+			expect(issues.comment).toHaveBeenCalledWith(
+				11,
+				expect.stringContaining('need clarification'),
+			);
+			expect(issues.comment).toHaveBeenCalledWith(
+				11,
+				expect.stringContaining('What should the scope be?'),
+			);
+		});
+
+		it('does not push branch when agent signals ambiguity', async () => {
+			const issue = makeIssue({number: 12, title: 'Unclear issue'});
+
+			const issues = createMockIssueProvider({
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [];
+						if (opts?.noLabels) return [issue];
+						return [];
+					}),
+			});
+
+			const agent = createMockAgent({
+				run: vi.fn().mockImplementation(async () => {
+					fs.writeFileSync(
+						path.join(tmpDir, '.whitesmith-ambiguity.md'),
+						'## Questions\n1. Need more info\n',
+					);
+					return {output: 'done', exitCode: 0};
+				}),
+			});
+
+			const config = createConfig(tmpDir, {noPush: false});
+			const orch = new Orchestrator(config, issues, agent);
+			await orch.run();
+
+			// forcePush should not be called
+			// (We verify indirectly: no PR created means no push happened)
+			expect(issues.createPR).not.toHaveBeenCalled();
+		});
+
+		it('continues existing flow when agent does not signal ambiguity', async () => {
+			const issue = makeIssue({number: 13, title: 'Clear feature'});
+
+			const issues = createMockIssueProvider({
+				listIssues: vi
+					.fn()
+					.mockImplementation(async (opts?: {labels?: string[]; noLabels?: string[]}) => {
+						if (opts?.labels?.includes(LABELS.TASKS_ACCEPTED)) return [];
+						if (opts?.noLabels) return [issue];
+						return [];
+					}),
+			});
+
+			const agent = createMockAgent({
+				run: vi.fn().mockImplementation(async () => {
+					writeTaskFile(tmpDir, 13, 1, 'the-task');
+					return {output: 'done', exitCode: 0};
+				}),
+			});
+
+			const config = createConfig(tmpDir, {noPush: false});
+			const orch = new Orchestrator(config, issues, agent);
+			await orch.run();
+
+			// Normal flow: should create PR and label as tasks-proposed
+			expect(issues.createPR).toHaveBeenCalled();
+			expect(issues.addLabel).toHaveBeenCalledWith(13, LABELS.TASKS_PROPOSED);
+			// Should NOT add needs-clarification label
+			expect(issues.addLabel).not.toHaveBeenCalledWith(13, LABELS.NEEDS_CLARIFICATION);
 		});
 	});
 
@@ -1261,6 +1371,25 @@ describe('Orchestrator', () => {
 
 		it('goes idle when issue has completed label', async () => {
 			const issue = makeIssue({number: 42, title: 'Done', labels: [LABELS.COMPLETED]});
+
+			const issues = createMockIssueProvider({
+				getIssue: vi.fn().mockResolvedValue(issue),
+			});
+
+			const agent = createMockAgent();
+			const config = createConfig(tmpDir, {issueNumber: 42, maxIterations: 1});
+			const orch = new Orchestrator(config, issues, agent);
+			await orch.run();
+
+			expect(agent.run).not.toHaveBeenCalled();
+		});
+
+		it('goes idle when issue has needs-clarification label', async () => {
+			const issue = makeIssue({
+				number: 42,
+				title: 'Needs info',
+				labels: [LABELS.NEEDS_CLARIFICATION],
+			});
 
 			const issues = createMockIssueProvider({
 				getIssue: vi.fn().mockResolvedValue(issue),

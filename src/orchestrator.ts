@@ -6,7 +6,7 @@ import type {IssueProvider} from './providers/issue-provider.js';
 import type {AgentHarness} from './harnesses/agent-harness.js';
 import {TaskManager} from './task-manager.js';
 import {GitManager} from './git.js';
-import {buildInvestigatePrompt, buildImplementPrompt} from './prompts.js';
+import {buildInvestigatePrompt, buildImplementPrompt, buildClarificationComment} from './prompts.js';
 import {isAutoWorkEnabled} from './auto-work.js';
 import {performReview} from './review.js';
 import type {ReviewResult} from './review.js';
@@ -246,6 +246,11 @@ export class Orchestrator {
 			await this.issues.removeLabel(issue.number, LABELS.INVESTIGATING);
 			// Treat as uninvestigated — re-investigate
 			return {type: 'investigate', issue};
+		}
+
+		// needs-clarification: idle (will change to re-investigate in 43-003)
+		if (labels.includes(LABELS.NEEDS_CLARIFICATION)) {
+			return {type: 'idle'};
 		}
 
 		// tasks-accepted: check if all tasks are done (reconcile) or implement next task
@@ -549,6 +554,21 @@ export class Orchestrator {
 					await this.git.checkoutMain();
 					return;
 				}
+			}
+
+			// Check if the agent signaled ambiguity
+			const clarificationText = checkForAmbiguity(this.config.workDir);
+			if (clarificationText) {
+				console.log(`Agent signaled ambiguity for issue #${issue.number}`);
+				await this.git.checkoutMain();
+				await this.git.deleteLocalBranch(branch);
+				await this.issues.removeLabel(issue.number, LABELS.INVESTIGATING);
+				await this.issues.addLabel(issue.number, LABELS.NEEDS_CLARIFICATION);
+				await this.issues.comment(
+					issue.number,
+					buildClarificationComment(clarificationText),
+				);
+				return;
 			}
 
 			// Verify task files were created

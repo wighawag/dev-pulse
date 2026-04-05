@@ -58,6 +58,8 @@ export const LABELS = {
 	COMPLETED: 'whitesmith:completed',
 	/** Auto-work mode: auto-approve task PRs */
 	AUTO_WORK: 'whitesmith:auto-work',
+	/** Issue needs clarification before tasks can be generated */
+	NEEDS_CLARIFICATION: 'whitesmith:needs-clarification',
 } as const;
 
 /**

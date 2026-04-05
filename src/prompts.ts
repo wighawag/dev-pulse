@@ -329,6 +329,23 @@ Do NOT commit, push, or create PRs.
 }
 
 /**
+ * Build the comment posted on an issue when the agent signals ambiguity.
+ * Includes the agent's clarification questions and instructions for the user.
+ */
+export function buildClarificationComment(clarificationText: string): string {
+	return `🤔 I've analyzed this issue and need clarification before generating implementation tasks:
+
+${clarificationText.trim()}
+
+---
+
+**How to respond:**
+**Edit this issue** — update the description with the missing details.
+
+I'll automatically re-analyze when the issue description is updated.`;
+}
+
+/**
  * Build the prompt for the "implement" phase.
  * The agent implements a specific task and deletes the task file.
  */

@@ -1,5 +1,5 @@
 import {describe, it, expect} from 'vitest';
-import {buildInvestigatePrompt, buildImplementPrompt} from '../src/prompts.js';
+import {buildInvestigatePrompt, buildImplementPrompt, buildClarificationComment} from '../src/prompts.js';
 import type {Issue, Task} from '../src/types.js';
 
 const sampleIssue: Issue = {
@@ -74,6 +74,38 @@ describe('buildInvestigatePrompt', () => {
 		const prompt = buildInvestigatePrompt(sampleIssue, 'tasks/42');
 		expect(prompt).toContain('Questions');
 		expect(prompt).toContain('Summary');
+	});
+});
+
+describe('buildClarificationComment', () => {
+	it('includes the clarification text', () => {
+		const text = '## Summary\nUnclear requirements.\n\n## Questions\n1. What is the scope?';
+		const comment = buildClarificationComment(text);
+		expect(comment).toContain('What is the scope?');
+		expect(comment).toContain('Unclear requirements.');
+	});
+
+	it('includes the thinking emoji and header', () => {
+		const comment = buildClarificationComment('Some questions');
+		expect(comment).toContain('🤔');
+		expect(comment).toContain('need clarification');
+	});
+
+	it('includes instructions to edit the issue', () => {
+		const comment = buildClarificationComment('Some questions');
+		expect(comment).toContain('Edit this issue');
+		expect(comment).toContain('update the description');
+	});
+
+	it('includes re-analyze message', () => {
+		const comment = buildClarificationComment('Some questions');
+		expect(comment).toContain('automatically re-analyze');
+	});
+
+	it('trims whitespace from clarification text', () => {
+		const comment = buildClarificationComment('  \n  Some questions  \n  ');
+		expect(comment).toContain('Some questions');
+		expect(comment).not.toContain('  \n  Some questions');
 	});
 });
 
