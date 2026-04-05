@@ -490,14 +490,12 @@ describe('Orchestrator', () => {
 						return [];
 					}),
 				// Only 1 prior clarification comment (limit is 3, so still under)
-				listComments: vi
-					.fn()
-					.mockResolvedValue([
-						{
-							author: 'github-actions[bot]',
-							body: "\ud83e\udd14 I've analyzed this issue and need clarification...cycle 1",
-						},
-					]),
+				listComments: vi.fn().mockResolvedValue([
+					{
+						author: 'github-actions[bot]',
+						body: "\ud83e\udd14 I've analyzed this issue and need clarification...cycle 1",
+					},
+				]),
 			});
 
 			const agent = createMockAgent({
