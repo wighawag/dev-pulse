@@ -1555,7 +1555,9 @@ describe('Orchestrator', () => {
 			expect(agent.run).not.toHaveBeenCalled();
 		});
 
-		it('re-investigates when issue has needs-clarification label', async () => {
+		it('re-investigates when issue has needs-clarification label in a fresh run', async () => {
+			// In a fresh run (e.g., triggered by whitesmith-issue.yml after human edits),
+			// the orchestrator has not posted clarification itself, so it should re-investigate.
 			const issue = makeIssue({
 				number: 42,
 				title: 'Needs info',
@@ -1577,7 +1579,7 @@ describe('Orchestrator', () => {
 			const orch = new Orchestrator(config, issues, agent);
 			await orch.run();
 
-			// Should investigate (agent is called)
+			// Should investigate (agent is called) since this is a fresh run
 			expect(agent.run).toHaveBeenCalledTimes(1);
 			// Should add investigating label
 			expect(issues.addLabel).toHaveBeenCalledWith(42, LABELS.INVESTIGATING);
@@ -1585,7 +1587,56 @@ describe('Orchestrator', () => {
 			expect(issues.removeLabel).toHaveBeenCalledWith(42, LABELS.NEEDS_CLARIFICATION);
 		});
 
-		it('removes needs-clarification label during re-investigation before agent runs', async () => {
+		it('goes idle when issue has needs-clarification label posted in the same run', async () => {
+			// When the orchestrator itself posts clarification in iteration 1,
+			// iteration 2 should go idle instead of re-investigating.
+			const issueFetch1 = makeIssue({number: 42, title: 'Ambiguous', labels: []});
+			const issueFetch2 = makeIssue({
+				number: 42,
+				title: 'Ambiguous',
+				labels: [LABELS.NEEDS_CLARIFICATION],
+			});
+
+			const getIssueMock = vi
+				.fn()
+				.mockResolvedValueOnce(issueFetch1)
+				.mockResolvedValueOnce(issueFetch2);
+
+			const issues = createMockIssueProvider({
+				getIssue: getIssueMock,
+			});
+
+			// Agent signals ambiguity on iteration 1
+			const agent = createMockAgent({
+				run: vi.fn().mockImplementation(async () => {
+					fs.writeFileSync(
+						path.join(tmpDir, '.whitesmith-ambiguity.md'),
+						'## Questions\n1. What should the scope be?\n',
+					);
+					return {output: 'done', exitCode: 0};
+				}),
+			});
+
+			const config = createConfig(tmpDir, {issueNumber: 42, maxIterations: 2, noPush: false});
+			const orch = new Orchestrator(config, issues, agent);
+			await orch.run();
+
+			// Agent should only be called once (iteration 1: investigate -> ambiguity)
+			expect(agent.run).toHaveBeenCalledTimes(1);
+			// Issue should have been fetched twice (once per iteration)
+			expect(getIssueMock).toHaveBeenCalledTimes(2);
+			// Clarification was posted
+			expect(issues.addLabel).toHaveBeenCalledWith(42, LABELS.NEEDS_CLARIFICATION);
+			expect(issues.comment).toHaveBeenCalledWith(
+				42,
+				expect.stringContaining('need clarification'),
+			);
+		});
+
+		it('removes needs-clarification label during re-investigation before agent runs (fresh run)', async () => {
+			// This tests the fresh-run case where a new `whitesmith run` is triggered
+			// after the human edits the issue. The orchestrator hasn't posted clarification
+			// itself, so it re-investigates and removes the label.
 			const issue = makeIssue({
 				number: 42,
 				title: 'Clarified',
