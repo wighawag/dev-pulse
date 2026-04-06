@@ -27,4 +27,6 @@ export interface AgentHarnessConfig {
 	provider: string;
 	/** AI model ID (e.g. 'claude-opus-4-6') */
 	model: string;
+	/** Show verbose tool execution output (args and results) */
+	verboseTools?: boolean;
 }

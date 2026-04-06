@@ -23,6 +23,7 @@ function createOrchestrator(config: DevPulseConfig): Orchestrator {
 		cmd: config.agentCmd,
 		provider: config.provider,
 		model: config.model,
+		verboseTools: config.verboseTools,
 	});
 	return new Orchestrator(config, issues, agent);
 }
@@ -57,6 +58,7 @@ export function buildCli(): Command {
 			'Max ambiguity cycles before escalating to human review',
 			'3',
 		)
+		.option('--verbose-tools', 'Show verbose tool execution output (args and results)')
 		.action(async (workDir: string, opts) => {
 			const config: DevPulseConfig = {
 				agentCmd: opts.agentCmd,
@@ -73,6 +75,7 @@ export function buildCli(): Command {
 				repo: opts.repo,
 				issueNumber: opts.issue ? parseInt(opts.issue, 10) : undefined,
 				maxAmbiguityCycles: parseInt(opts.maxAmbiguityCycles, 10),
+				verboseTools: opts.verboseTools ?? false,
 			};
 
 			if (!fs.existsSync(config.workDir)) {
@@ -156,6 +159,7 @@ export function buildCli(): Command {
 			'--post',
 			'Post the response as a GitHub comment (issue-only, otherwise prints to stdout)',
 		)
+		.option('--verbose-tools', 'Show verbose tool execution output (args and results)')
 		.action(async (workDir: string, opts) => {
 			const resolvedDir = path.resolve(workDir);
 			if (!fs.existsSync(resolvedDir)) {
@@ -186,6 +190,7 @@ export function buildCli(): Command {
 				cmd: opts.agentCmd,
 				provider: opts.provider,
 				model: opts.model,
+				verboseTools: opts.verboseTools ?? false,
 			});
 
 			await agent.validate();
@@ -275,6 +280,7 @@ export function buildCli(): Command {
 		.option('--repo <owner/repo>', 'GitHub repo (auto-detected if omitted)')
 		.option('--log-file <path>', 'Log agent output to file')
 		.option('--post', 'Post the review as a GitHub comment (otherwise prints to stdout)')
+		.option('--verbose-tools', 'Show verbose tool execution output (args and results)')
 		.action(async (workDir: string, opts) => {
 			const resolvedDir = path.resolve(workDir);
 			if (!fs.existsSync(resolvedDir)) {
@@ -289,6 +295,7 @@ export function buildCli(): Command {
 				cmd: opts.agentCmd,
 				provider: opts.provider,
 				model: opts.model,
+				verboseTools: opts.verboseTools ?? false,
 			});
 
 			await agent.validate();

@@ -30,11 +30,13 @@ export class PiHarness implements AgentHarness {
 	private cmd: string;
 	private provider: string;
 	private model: string;
+	private verboseTools: boolean;
 
 	constructor(config: AgentHarnessConfig) {
 		this.cmd = config.cmd;
 		this.provider = config.provider;
 		this.model = config.model;
+		this.verboseTools = config.verboseTools ?? false;
 	}
 
 	async validate(): Promise<void> {
@@ -159,15 +161,22 @@ export class PiHarness implements AgentHarness {
 				return null;
 			}
 			case 'tool_execution_start': {
-				const argsStr = JSON.stringify(event.args);
-				const truncArgs = argsStr.length > 200 ? argsStr.slice(0, 200) + '…' : argsStr;
-				return `\n🔧 ${event.toolName}(${truncArgs})`;
+				if (this.verboseTools) {
+					const argsStr = JSON.stringify(event.args);
+					const truncArgs = argsStr.length > 200 ? argsStr.slice(0, 200) + '…' : argsStr;
+					return `\n🔧 ${event.toolName}(${truncArgs})`;
+				}
+				return `\n🔧 ${event.toolName}`;
 			}
 			case 'tool_execution_end': {
 				const icon = event.isError ? '❌' : '✅';
-				const res = typeof event.result === 'string' ? event.result : JSON.stringify(event.result);
-				const truncRes = res.length > 500 ? res.slice(0, 500) + '…' : res;
-				return `${icon} ${event.toolName} → ${truncRes}`;
+				if (this.verboseTools) {
+					const res =
+						typeof event.result === 'string' ? event.result : JSON.stringify(event.result);
+					const truncRes = res.length > 500 ? res.slice(0, 500) + '…' : res;
+					return `${icon} ${event.toolName} → ${truncRes}`;
+				}
+				return `${icon}`;
 			}
 			case 'compaction_start':
 				return `\n📦 Compaction (${event.reason})`;

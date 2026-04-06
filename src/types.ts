@@ -96,6 +96,8 @@ export interface DevPulseConfig {
 	issueNumber?: number;
 	/** Maximum ambiguity cycles before escalating to human review (default: 3) */
 	maxAmbiguityCycles?: number;
+	/** Show verbose tool execution output (args and results) */
+	verboseTools?: boolean;
 }
 
 /**
